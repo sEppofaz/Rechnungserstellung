@@ -1,0 +1,8 @@
+anthropic
+dropbox
+flask
+gunicorn
+docxtpl
+pillow
+openpyxl
+pillow-heif
