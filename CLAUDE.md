@@ -48,15 +48,15 @@ scp ~/Library/CloudStorage/Dropbox/Apps/Claude/Rechnung\ Kargl/template.docx \
 
 ## Architektur
 
+**Primärer Flow (App):**
 ```
-iPhone/Dropbox Scan → Rechnungen_Input/
-  → Dropbox-Webhook POST /webhook-invoice
-  → gunicorn (Port 5002) → app.py
-  → Claude Vision (claude-sonnet-4-6) → JSON
-  → Berechnung + Validierung
-  → template.docx befüllen → Rechnungen_Entwurf/
-  → Original → Rechnungen_Erledigt/
-  → Eintrag in Rechnungsregister.xlsx
+App /kargl/ → POST /kargl/api/ocr → Claude OCR → Felder anzeigen
+→ POST /kargl/api/confirm → ODT → Dropbox Entwurf + Register
+```
+
+**Fallback (Dropbox-Webhook):**
+```
+Rechnungen_Input/ → POST /webhook-invoice → Claude OCR → ODT automatisch
 ```
 
 ### Server-Struktur
@@ -65,9 +65,12 @@ iPhone/Dropbox Scan → Rechnungen_Input/
 /opt/kargl-invoice/
 ├── src/
 │   ├── app.py              ← gesamte Logik (standalone, kein shared-Import)
+│   ├── kargl_app.html      ← Review-App PWA (git)
 │   └── requirements.txt
 ├── template.docx           ← Word-Vorlage (außerhalb git, per scp deployen)
 ├── invoice_cursor.txt      ← Dropbox-Cursor (außerhalb git)
+├── sessions/               ← temporäre OCR-Sessions (max 24h, auto-cleanup)
+├── icons/                  ← generierte PWA-Icons (auto-generiert beim Start)
 └── bin/                    ← Python venv
 ```
 
@@ -75,8 +78,8 @@ iPhone/Dropbox Scan → Rechnungen_Input/
 
 ```
 /_Austauschordner-Sandra-sEpp/Kargl-Rechnung/
-    Rechnungen_Input/       ← Scan hier ablegen
-    Rechnungen_Entwurf/     ← fertige .docx erscheint hier
+    Rechnungen_Input/       ← Webhook-Fallback: Scan hier ablegen
+    Rechnungen_Entwurf/     ← fertige .odt erscheint hier
     Rechnungen_Erledigt/    ← verarbeitete Originale
     Rechnungen_Fehler/      ← nicht verarbeitbare Dateien
     _Adressen.xlsx          ← Kundenadressen (automatisch gepflegt)
@@ -155,9 +158,51 @@ CLAUDE_INVOICE_MODEL=claude-opus-4-7
 
 ---
 
+## Kargl Review-App (`/kargl/`)
+
+**URL:** `https://umbenennen.duckdns.org/kargl/`
+**Auth:** Token-Login (Bearer-Token, `KARGL_APP_TOKEN` in secrets.env)
+
+### Neuer Flow (primär)
+
+```
+App: Foto aufnehmen / Datei wählen
+    ↓ POST /kargl/api/ocr (multipart, Bearer-Token)
+Server: Claude OCR → JSON-Felder zurück + session_id
+    ↓ (~5–15 Sek)
+App: Editierbare Felder + Bildvorschau
+    ↓ POST /kargl/api/confirm (editierte Felder + session_id)
+Server: Rechnungsnummer vergeben, docx → ODT, Dropbox Entwurf,
+        Adressen.xlsx (neue Kunden), Rechnungsregister.xlsx
+    ↓
+App: "✅ Rechnung erstellt"
+```
+
+### Session-Files
+
+- `/opt/kargl-invoice/sessions/{uuid}.jpg` – temporäre Scan-Kopie (max 24h)
+- `/opt/kargl-invoice/sessions/{uuid}.json` – Session-Meta
+- Automatische Bereinigung (>24h) beim nächsten OCR-Aufruf
+
+### Icons
+
+- Generiert beim Service-Start via PIL in `/opt/kargl-invoice/icons/`
+- Falls Generierung fehlschlägt: 404 bei Icon-Request (unkritisch)
+
+---
+
+## Ausgabeformat
+
+- **App-Flow:** ODT via LibreOffice headless (`libreoffice --headless --convert-to odt`)
+- **Webhook-Fallback:** ebenfalls ODT; fällt auf `.docx` zurück wenn LibreOffice fehlt
+- LibreOffice ist installiert unter `/usr/bin/libreoffice`
+
+---
+
 ## Secrets (`/etc/pka/secrets.env`)
 
 Niemals direkt lesen – Josef fragen. Benötigte Keys:
 - `DROPBOX_INVOICE_REFRESH_TOKEN`, `DROPBOX_INVOICE_APP_KEY`, `DROPBOX_INVOICE_APP_SECRET`
 - `CLAUDE_API_KEY`
+- `KARGL_APP_TOKEN` – Zugangscode für die Review-App (Josef + Sandra)
 - Optional: `CLAUDE_INVOICE_MODEL` (Default: `claude-sonnet-4-6`)
