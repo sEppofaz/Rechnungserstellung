@@ -132,6 +132,9 @@ Wird automatisch aus `_Rechnungsregister.xlsx` hochgezählt. Jahreswechsel → R
 - **Claude-Antwort manchmal in Markdown-Backticks** – Code strippt ` ```json ``` ` vor `json.loads()`
 - **Adresse bekannter Kunde** → wird aus `_Adressen.xlsx` übernommen, kein Nominatim-Aufruf
 - **`[BITTE PRÜFEN]`** erscheint im Dokument wenn: Adresse korrigiert, Adresse nicht verifiziert, Rechenabweichung >0,02 €
+- **nginx `sites-enabled` ist eine Kopie, kein Symlink** – Änderungen an `sites-available/rename-webhook` müssen immer mit `cp sites-available/rename-webhook sites-enabled/rename-webhook` übernommen werden, sonst bleibt nginx auf dem alten Stand
+- **LibreOffice OCR-Timeout** – Konvertierung kann bis zu 30s dauern; bei sehr großen Dateien ggf. Timeout anpassen
+- **`KARGL_APP_TOKEN` fehlt → App zeigt Login, aber alle API-Calls liefern 401** – Token in `/etc/pka/secrets.env` eintragen + `systemctl restart kargl-invoice`
 
 ---
 
