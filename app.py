@@ -974,6 +974,10 @@ def kargl_ocr():
         invoice_data = extract_invoice_data(process_path, process_suffix)
         log(f"🤖  App OCR: {invoice_data.get('name', '?')}")
 
+        dbx          = get_dropbox_client()
+        invoice_data = enrich_invoice_address(dbx, invoice_data)
+        log(f"📋  App Adresse: {invoice_data.get('strasse_nr', '?')}, {invoice_data.get('plz', '?')} {invoice_data.get('ort', '?')}")
+
         meta = {"original_suffix": suffix, "created_at": datetime.now().isoformat()}
         (SESSIONS_DIR / f"{session_id}.json").write_text(json.dumps(meta, ensure_ascii=False))
 
@@ -1005,15 +1009,7 @@ def kargl_confirm():
 
     dbx  = get_dropbox_client()
     calc = calculate_and_validate(fields)
-
-    # Neuen Kunden in Adressen.xlsx eintragen
     name = fields.get("name", "")
-    if name and not find_in_address_excel(dbx, name):
-        add_to_address_excel(
-            dbx, name,
-            fields.get("strasse_nr", ""), fields.get("plz", ""), fields.get("ort", ""),
-            street_ok=True, location_ok=True, street_corrected=False,
-        )
 
     rechnungsnummer = get_next_invoice_number(dbx)
 
