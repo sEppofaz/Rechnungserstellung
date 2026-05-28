@@ -884,9 +884,9 @@ def kargl_manifest():
         "background_color": "#1c1c1e",
         "theme_color": "#92400e",
         "icons": [
-            {"src": "/kargl/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-            {"src": "/kargl/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-            {"src": "/kargl/icon-180.png", "sizes": "180x180", "type": "image/png"},
+            {"src": "/kargl/icon-192.png?v=2", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/kargl/icon-512.png?v=2", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/kargl/icon-180.png?v=2", "sizes": "180x180", "type": "image/png"},
         ],
     }
 
@@ -894,8 +894,8 @@ def kargl_manifest():
 @app.route("/kargl/sw.js")
 def kargl_sw():
     sw = (
-        "const CACHE='kargl-v2';\n"
-        "const SHELL=['/kargl/','/kargl/manifest.json','/kargl/icon-192.png','/kargl/icon-512.png','/kargl/icon-180.png'];\n"
+        "const CACHE='kargl-v3';\n"
+        "const SHELL=['/kargl/','/kargl/manifest.json','/kargl/icon-192.png?v=2','/kargl/icon-512.png?v=2','/kargl/icon-180.png?v=2'];\n"
         "self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});\n"
         "self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});\n"
         "self.addEventListener('fetch',e=>{\n"

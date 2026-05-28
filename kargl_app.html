@@ -9,7 +9,7 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)"  content="#92400e">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fef3c7">
   <link rel="manifest" href="/kargl/manifest.json">
-  <link rel="apple-touch-icon" href="/kargl/icon-180.png">
+  <link rel="apple-touch-icon" href="/kargl/icon-180.png?v=2">
   <title>Kargl Rechnung</title>
   <style>
     :root {
@@ -205,10 +205,12 @@
 
     /* Info-Button auf Hauptscreen */
     #btn-info {
-      background: none; border: none; color: var(--text2);
-      font-size: 13px; cursor: pointer; padding: 8px; font-family: inherit;
-      align-self: flex-end;
+      background: rgba(255,255,255,.15); border: none; color: #fff;
+      height: 34px; padding: 0 12px; border-radius: 9px;
+      font-size: 13px; font-weight: 600; letter-spacing: .3px;
+      cursor: pointer; font-family: inherit; align-self: flex-end;
     }
+    #btn-info:active { background: rgba(255,255,255,.3); }
   </style>
 </head>
 <body>
@@ -239,7 +241,7 @@
   <input type="file" id="file-inp" accept="image/*,.pdf" capture="environment"
          style="display:none" onchange="handleFile(this)">
   <div id="main-err" class="err"></div>
-  <button id="btn-info" onclick="document.getElementById('info-overlay').classList.add('show')">ℹ️ Info</button>
+  <button id="btn-info" onclick="document.getElementById('info-overlay').classList.add('show')" aria-label="Info">Info</button>
 </div>
 
 <!-- INFO-OVERLAY -->
