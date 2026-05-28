@@ -6,3 +6,4 @@ docxtpl
 pillow
 openpyxl
 pillow-heif
+cairosvg

@@ -148,33 +148,22 @@ def _ensure_kargl_icons() -> None:
             _generate_kargl_icon(size, p)
 
 
+_KARGL_ICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="-6 -6 36 36">
+  <rect x="-6" y="-6" width="36" height="36" fill="#92400e"/>
+  <path d="M12 17V7" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>'''
+
+
 def _generate_kargl_icon(size: int, path: Path) -> None:
-    from PIL import Image as PILImage, ImageDraw, ImageFont
-    bg = (146, 64, 14)
-    img = PILImage.new("RGB", (size, size), bg)
-    draw = ImageDraw.Draw(img)
-    text = "K"
-    font_size = int(size * 0.55)
-    font = None
-    for font_path in [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    ]:
-        if Path(font_path).exists():
-            try:
-                from PIL import ImageFont
-                font = ImageFont.truetype(font_path, font_size)
-                break
-            except Exception:
-                pass
-    if font is None:
-        from PIL import ImageFont
-        font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), text, font=font)
-    x = (size - (bbox[2] - bbox[0])) // 2 - bbox[0]
-    y = (size - (bbox[3] - bbox[1])) // 2 - bbox[1]
-    draw.text((x, y), text, fill=(255, 255, 255), font=font)
-    img.save(str(path))
+    import cairosvg
+    cairosvg.svg2png(
+        bytestring=_KARGL_ICON_SVG.encode(),
+        write_to=str(path),
+        output_width=size,
+        output_height=size,
+    )
     log(f"🖼  Kargl-Icon erstellt: {path}")
 
 
