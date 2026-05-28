@@ -894,7 +894,7 @@ def kargl_manifest():
 @app.route("/kargl/sw.js")
 def kargl_sw():
     sw = (
-        "const CACHE='kargl-v1';\n"
+        "const CACHE='kargl-v2';\n"
         "const SHELL=['/kargl/','/kargl/manifest.json','/kargl/icon-192.png','/kargl/icon-512.png','/kargl/icon-180.png'];\n"
         "self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});\n"
         "self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});\n"
