@@ -211,6 +211,11 @@
       cursor: pointer; font-family: inherit; align-self: flex-end;
     }
     #btn-info:active { background: rgba(255,255,255,.3); }
+
+    /* Scroll-to-Top */
+    .back-top { position: fixed; bottom: calc(24px + var(--safe-b)); right: 16px; width: 40px; height: 40px; border-radius: 50%; background: var(--primary); color: #fff; border: none; font-size: 20px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.25); display: none; align-items: center; justify-content: center; z-index: 200; transition: opacity .2s; }
+    .back-top.vis { display: flex; }
+    .back-top:active { opacity: .7; }
   </style>
 </head>
 <body>
@@ -614,6 +619,11 @@
     el.textContent = msg;
   }
 
+  // ── Scroll-to-Top ──
+  window.addEventListener('scroll', () => {
+    document.getElementById('back-top').classList.toggle('vis', window.scrollY > 300);
+  });
+
   // ── Pull-to-Refresh ──
   const ptrEl = document.getElementById('ptr');
   let ptrY = 0, ptrActive = false;
@@ -649,5 +659,6 @@
     });
   }
 </script>
+<button class="back-top" id="back-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">&#8679;</button>
 </body>
 </html>
