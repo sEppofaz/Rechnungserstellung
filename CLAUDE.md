@@ -3,7 +3,7 @@
 ## Kerninfos
 
 - **Service:** `/opt/kargl-invoice/`, Port 5002, systemd `kargl-invoice.service`
-- **Lokale Arbeitskopie:** `~/Dropbox/Apps/Claude/Rechnungserstellung/app.py`
+- **Lokale Arbeitskopie:** `~/Dropbox/Apps/Claude/Rechnung Kargl/src/app.py`
 - **GitHub:** `https://github.com/sEppofaz/Rechnungserstellung`
 - **Log:** `journalctl -u kargl-invoice -f`
 - **nginx-Route:** `location /webhook-invoice → 127.0.0.1:5002`
@@ -13,9 +13,9 @@
 
 ```bash
 # Code ändern → push → Server pull
-git -C ~/Library/CloudStorage/Dropbox/Apps/Claude/Rechnungserstellung add app.py
-git -C ~/Library/CloudStorage/Dropbox/Apps/Claude/Rechnungserstellung commit -m "..."
-git -C ~/Library/CloudStorage/Dropbox/Apps/Claude/Rechnungserstellung push
+git -C ~/Library/CloudStorage/Dropbox/Apps/Claude/Rechnung Kargl/src add app.py
+git -C ~/Library/CloudStorage/Dropbox/Apps/Claude/Rechnung Kargl/src commit -m "..."
+git -C ~/Library/CloudStorage/Dropbox/Apps/Claude/Rechnung Kargl/src push
 ssh root@89.167.104.145 "git -C /opt/kargl-invoice/src pull && systemctl restart kargl-invoice"
 ```
 
