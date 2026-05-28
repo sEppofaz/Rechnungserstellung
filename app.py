@@ -897,7 +897,29 @@ def kargl_manifest():
         "icons": [
             {"src": "/kargl/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
             {"src": "/kargl/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/kargl/icon-180.png", "sizes": "180x180", "type": "image/png"},
         ],
+    }
+
+
+@app.route("/kargl/sw.js")
+def kargl_sw():
+    sw = (
+        "const CACHE='kargl-v1';\n"
+        "const SHELL=['/kargl/','/kargl/manifest.json','/kargl/icon-192.png','/kargl/icon-512.png','/kargl/icon-180.png'];\n"
+        "self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});\n"
+        "self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});\n"
+        "self.addEventListener('fetch',e=>{\n"
+        "  const url=new URL(e.request.url);\n"
+        "  if(url.pathname.startsWith('/kargl/api/'))return;\n"
+        "  if(e.request.destination==='document'){e.respondWith(fetch(e.request).catch(()=>caches.match('/kargl/')));return;}\n"
+        "  e.respondWith(caches.match(e.request).then(c=>c||fetch(e.request)));\n"
+        "});\n"
+    )
+    return sw, 200, {
+        "Content-Type": "application/javascript",
+        "Cache-Control": "no-cache, no-store",
+        "Service-Worker-Allowed": "/kargl/",
     }
 
 

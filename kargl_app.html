@@ -158,9 +158,60 @@
       max-width: 340px;
     }
     .ok-sub    { font-size: 14px; color: var(--text2); line-height: 1.5; }
+
+    /* ── PULL-TO-REFRESH ── */
+    #ptr {
+      position: fixed; top: -56px; left: 50%; transform: translateX(-50%);
+      background: var(--bg2); border-radius: 20px; padding: 8px 16px;
+      font-size: 13px; color: var(--text2);
+      display: flex; align-items: center; gap: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+      transition: top 0.2s ease; z-index: 100; white-space: nowrap;
+    }
+    #ptr.show { top: calc(var(--safe-t) + 10px); }
+    #ptr-spin {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid var(--bg3); border-top-color: var(--primary);
+      animation: spin 0.7s linear infinite;
+    }
+
+    /* ── INFO-OVERLAY ── */
+    #info-overlay {
+      display: none; position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.45);
+    }
+    #info-overlay.show { display: flex; align-items: flex-end; }
+    #info-sheet {
+      background: var(--bg2); border-radius: 20px 20px 0 0; width: 100%;
+      max-height: 80vh; display: flex; flex-direction: column;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+    }
+    #info-hd {
+      padding: 14px 16px 10px; display: flex; justify-content: space-between;
+      align-items: center; border-bottom: 1px solid var(--bg3); flex-shrink: 0;
+    }
+    #info-hd strong { font-size: 15px; }
+    #btn-info-close {
+      background: var(--bg3); border: none; border-radius: 14px;
+      padding: 5px 14px; font-size: 13px; color: var(--text); cursor: pointer; font-family: inherit;
+    }
+    #info-body {
+      overflow-y: auto; padding: 16px 16px calc(20px + var(--safe-b));
+      -webkit-overflow-scrolling: touch; font-size: 15px; line-height: 1.6; color: var(--text2);
+    }
+    #info-body h3 { color: var(--text); font-size: 14px; margin: 14px 0 4px; }
+    #info-body p  { margin-bottom: 8px; }
+
+    /* Info-Button auf Hauptscreen */
+    #btn-info {
+      background: none; border: none; color: var(--text2);
+      font-size: 13px; cursor: pointer; padding: 8px; font-family: inherit;
+      align-self: flex-end;
+    }
   </style>
 </head>
 <body>
+<div id="ptr"><div id="ptr-spin"></div> Aktualisiere…</div>
 
 <!-- LOGIN -->
 <div id="s-login" class="screen">
@@ -187,6 +238,27 @@
   <input type="file" id="file-inp" accept="image/*,.pdf" capture="environment"
          style="display:none" onchange="handleFile(this)">
   <div id="main-err" class="err"></div>
+  <button id="btn-info" onclick="document.getElementById('info-overlay').classList.add('show')">ℹ️ Info</button>
+</div>
+
+<!-- INFO-OVERLAY -->
+<div id="info-overlay" onclick="if(event.target===this)this.classList.remove('show')">
+  <div id="info-sheet">
+    <div id="info-hd">
+      <strong>ℹ️ Kargl Rechnung</strong>
+      <button id="btn-info-close" onclick="document.getElementById('info-overlay').classList.remove('show')">Schließen</button>
+    </div>
+    <div id="info-body">
+      <h3>Wie funktioniert die App?</h3>
+      <p>Handgeschriebenen Rechnungszettel fotografieren → Claude liest alle Felder aus → du prüfst und korrigierst → Rechnung wird als ODT-Datei in Dropbox (Rechnungen_Entwurf/) abgelegt.</p>
+      <h3>Zugangscode</h3>
+      <p>Einmalig beim ersten Start eingeben. Der Code wird gespeichert – danach kein erneutes Einloggen nötig.</p>
+      <h3>Ausgabe</h3>
+      <p>Fertige Rechnung liegt in Dropbox unter <em>Rechnungen_Entwurf/</em> als .odt-Datei (LibreOffice/Word kompatibel).</p>
+      <h3>Adressdatenbank</h3>
+      <p>Neue Kunden werden automatisch in <em>_Adressen.xlsx</em> gespeichert. Beim nächsten Auftrag desselben Kunden wird die Adresse direkt übernommen.</p>
+    </div>
+  </div>
 </div>
 
 <!-- LOADING -->
@@ -539,13 +611,40 @@
     el.textContent = msg;
   }
 
-  // Pull-to-Refresh
-  let ptStart = 0;
-  document.addEventListener('touchstart', e => { ptStart = e.touches[0].clientY; }, {passive:true});
-  document.addEventListener('touchend',   e => {
-    const dy = e.changedTouches[0].clientY - ptStart;
-    if (dy > 80 && window.scrollY === 0) location.reload();
+  // ── Pull-to-Refresh ──
+  const ptrEl = document.getElementById('ptr');
+  let ptrY = 0, ptrActive = false;
+  document.addEventListener('touchstart', e => {
+    if (window.scrollY === 0) { ptrY = e.touches[0].clientY; ptrActive = true; }
   }, {passive:true});
+  document.addEventListener('touchmove', e => {
+    if (!ptrActive) return;
+    if (e.touches[0].clientY - ptrY > 50) ptrEl.classList.add('show');
+  }, {passive:true});
+  document.addEventListener('touchend', e => {
+    if (!ptrActive) return;
+    const dy = e.changedTouches[0].clientY - ptrY;
+    if (dy > 80) location.reload();
+    ptrEl.classList.remove('show');
+    ptrActive = false;
+  }, {passive:true});
+
+  // ── Service Worker ──
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/kargl/sw.js', {scope: '/kargl/'})
+      .then(reg => {
+        reg.update();
+        reg.addEventListener('updatefound', () => {
+          reg.installing.addEventListener('statechange', function() {
+            if (this.state === 'activated') location.reload();
+          });
+        });
+      });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible')
+        navigator.serviceWorker.getRegistration('/kargl/').then(r => r && r.update());
+    });
+  }
 </script>
 </body>
 </html>
