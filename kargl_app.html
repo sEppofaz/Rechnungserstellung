@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)"  content="#92400e">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fef3c7">
+  <link rel="manifest" href="/kargl/manifest.json">
+  <link rel="apple-touch-icon" href="/kargl/icon-180.png">
+  <title>Kargl Rechnung</title>
+  <style>
+    :root {
+      --bg:        #1c1c1e;
+      --bg2:       #2c2c2e;
+      --bg3:       #3a3a3c;
+      --text:      #f5f5f7;
+      --text2:     #aeaeb2;
+      --primary:   #d97706;
+      --primary-d: #b45309;
+      --danger:    #ef4444;
+      --success:   #22c55e;
+      --warn:      #f59e0b;
+      --safe-t:    env(safe-area-inset-top);
+      --safe-b:    env(safe-area-inset-bottom);
+      --safe-l:    env(safe-area-inset-left);
+      --safe-r:    env(safe-area-inset-right);
+    }
+    @media (prefers-color-scheme: light) {
+      :root { --bg:#fef9f0; --bg2:#ffffff; --bg3:#f3f4f6; --text:#1c1917; --text2:#6b7280; }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100svh; overscroll-behavior: none;
+    }
+    .screen {
+      display: flex; flex-direction: column;
+      min-height: 100svh;
+      padding: calc(var(--safe-t) + 20px) calc(var(--safe-r) + 16px)
+               calc(var(--safe-b) + 20px) calc(var(--safe-l) + 16px);
+    }
+    .hidden { display: none !important; }
+
+    /* Inputs & Buttons */
+    input, textarea, select {
+      width: 100%; background: var(--bg2); color: var(--text);
+      border: 1.5px solid var(--bg3); border-radius: 12px;
+      padding: 13px 14px; font-size: 16px; outline: none;
+      -webkit-appearance: none; font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    input:focus, textarea:focus, select:focus { border-color: var(--primary); }
+    textarea { resize: vertical; }
+    .btn {
+      display: block; width: 100%; padding: 15px;
+      border-radius: 14px; font-size: 17px; font-weight: 600;
+      border: none; cursor: pointer; transition: opacity 0.1s; font-family: inherit;
+    }
+    .btn:active { opacity: 0.75; }
+    .btn:disabled { opacity: 0.45; cursor: default; }
+    .btn-primary  { background: var(--primary); color: #fff; }
+    .btn-ghost    { background: var(--bg2); color: var(--text); border: 1.5px solid var(--bg3); }
+    .err { color: var(--danger); font-size: 14px; text-align: center; min-height: 20px; }
+
+    /* ── LOGIN ── */
+    #s-login { align-items: center; justify-content: center; gap: 28px; }
+    .app-icon  { font-size: 72px; }
+    .app-name  { font-size: 28px; font-weight: 700; text-align: center; }
+    .app-sub   { font-size: 14px; color: var(--text2); text-align: center; margin-top: 4px; }
+    .login-box { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 12px; }
+
+    /* ── MAIN ── */
+    #s-main { align-items: center; justify-content: center; gap: 24px; }
+    .scan-card {
+      width: 100%; background: var(--primary); border-radius: 28px;
+      padding: 52px 24px; text-align: center; cursor: pointer;
+      transition: transform 0.12s, opacity 0.12s; user-select: none;
+    }
+    .scan-card:active { transform: scale(0.96); opacity: 0.88; }
+    .scan-card-icon  { font-size: 64px; margin-bottom: 14px; }
+    .scan-card-label { font-size: 22px; font-weight: 700; color: #fff; }
+    .scan-card-sub   { font-size: 14px; color: rgba(255,255,255,0.78); margin-top: 6px; }
+
+    /* ── LOADING ── */
+    #s-loading { align-items: center; justify-content: center; gap: 24px; text-align: center; }
+    .spinner {
+      width: 52px; height: 52px; border-radius: 50%;
+      border: 4px solid var(--bg3); border-top-color: var(--primary);
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-label { font-size: 17px; color: var(--text2); }
+
+    /* ── FORM ── */
+    #s-form { padding-top: calc(var(--safe-t) + 12px); gap: 0; }
+    .form-bar {
+      display: flex; align-items: center; gap: 14px;
+      padding-bottom: 14px; border-bottom: 1px solid var(--bg3); margin-bottom: 18px;
+    }
+    .img-thumb {
+      width: 56px; height: 72px; object-fit: cover;
+      border-radius: 8px; flex-shrink: 0; border: 2px solid var(--bg3);
+    }
+    .form-bar-text h2 { font-size: 17px; font-weight: 700; }
+    .form-bar-text p  { font-size: 13px; color: var(--text2); margin-top: 3px; }
+    .warn-box {
+      background: #451a03; border: 1px solid var(--warn); border-radius: 12px;
+      padding: 12px 14px; font-size: 14px; margin-bottom: 16px;
+      display: flex; gap: 8px; line-height: 1.4;
+    }
+    .sec-label {
+      font-size: 12px; font-weight: 600; color: var(--text2);
+      text-transform: uppercase; letter-spacing: 0.05em;
+      margin-bottom: 8px; margin-top: 20px; display: block;
+    }
+    .row2 { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+    /* Positionen */
+    .pos-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+    .pos-card { background: var(--bg2); border-radius: 12px; padding: 12px; }
+    .pos-head  {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .pos-nr  { font-size: 13px; font-weight: 600; color: var(--text2); }
+    .pos-del { background: none; border: none; color: var(--danger); font-size: 20px; cursor: pointer; padding: 2px 4px; line-height: 1; }
+    .pos-row { display: grid; grid-template-columns: 2fr 1fr 2fr; gap: 8px; margin-bottom: 8px; }
+    .add-pos-btn {
+      width: 100%; padding: 13px; border-radius: 12px; border: 1.5px dashed var(--bg3);
+      background: none; color: var(--text2); font-size: 15px; cursor: pointer; font-family: inherit;
+    }
+    .add-pos-btn:active { opacity: 0.6; }
+    /* Calc */
+    .calc-card { background: var(--bg2); border-radius: 14px; overflow: hidden; }
+    .calc-row  {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 13px 16px; border-bottom: 1px solid var(--bg3);
+    }
+    .calc-row:last-child { border-bottom: none; }
+    .calc-key  { font-size: 15px; color: var(--text2); }
+    .calc-val  { font-size: 17px; font-weight: 600; }
+    .calc-total { font-size: 20px; font-weight: 700; color: var(--primary); }
+    .calc-inp  { width: 130px; text-align: right; padding: 8px 12px; border-radius: 10px; }
+    .pauschal-hint { font-size: 13px; color: var(--text2); margin-top: 8px; }
+    /* Actions */
+    .form-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 28px; }
+
+    /* ── SUCCESS ── */
+    #s-success { align-items: center; justify-content: center; gap: 20px; text-align: center; }
+    .ok-icon   { font-size: 76px; }
+    .ok-title  { font-size: 26px; font-weight: 700; }
+    .ok-nr     { font-size: 15px; color: var(--text2); }
+    .ok-file   {
+      font-size: 13px; color: var(--text2); word-break: break-all;
+      background: var(--bg2); padding: 14px 16px; border-radius: 12px; line-height: 1.6;
+      max-width: 340px;
+    }
+    .ok-sub    { font-size: 14px; color: var(--text2); line-height: 1.5; }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="s-login" class="screen">
+  <div class="app-icon">🧾</div>
+  <div>
+    <div class="app-name">Kargl Rechnung</div>
+    <div class="app-sub">Josef Kargl · Holzimprägnierwerk · Traich 2</div>
+  </div>
+  <div class="login-box">
+    <input type="password" id="inp-token" placeholder="Zugangscode" autocomplete="current-password"
+           onkeydown="if(event.key==='Enter') login()">
+    <div id="login-err" class="err"></div>
+    <button class="btn btn-primary" onclick="login()">Einloggen</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="s-main" class="screen hidden">
+  <div class="scan-card" onclick="document.getElementById('file-inp').click()">
+    <div class="scan-card-icon">📸</div>
+    <div class="scan-card-label">Zettel scannen</div>
+    <div class="scan-card-sub">Foto aufnehmen oder Datei wählen</div>
+  </div>
+  <input type="file" id="file-inp" accept="image/*,.pdf" capture="environment"
+         style="display:none" onchange="handleFile(this)">
+  <div id="main-err" class="err"></div>
+</div>
+
+<!-- LOADING -->
+<div id="s-loading" class="screen hidden">
+  <div class="spinner"></div>
+  <div class="loading-label" id="loading-txt">Zettel wird ausgelesen…</div>
+  <div style="font-size:13px;color:var(--text2)">Claude analysiert den handgeschriebenen Zettel</div>
+</div>
+
+<!-- FORM -->
+<div id="s-form" class="screen hidden">
+  <div class="form-bar">
+    <img id="img-thumb" class="img-thumb" src="" alt="">
+    <div class="form-bar-text">
+      <h2>Rechnung prüfen</h2>
+      <p id="form-sub">Alle Felder prüfen und ggf. korrigieren</p>
+    </div>
+  </div>
+
+  <div id="warn-box" class="warn-box hidden">
+    <span>⚠️</span>
+    <span>Adresse oder Beträge unsicher – bitte besonders genau prüfen.</span>
+  </div>
+
+  <label class="sec-label">Empfänger</label>
+  <select id="f-anrede" style="margin-bottom:8px">
+    <option value="Firma">Firma</option>
+    <option value="Herr">Herr</option>
+    <option value="Frau">Frau</option>
+  </select>
+  <input type="text" id="f-name"    placeholder="Name / Firma"           style="margin-bottom:8px">
+  <input type="text" id="f-strasse" placeholder="Straße und Hausnummer"  style="margin-bottom:8px">
+  <div class="row2">
+    <input type="text" id="f-plz" placeholder="PLZ">
+    <input type="text" id="f-ort" placeholder="Ort">
+  </div>
+
+  <label class="sec-label">Leistungsbeschreibung</label>
+  <textarea id="f-beschreibung" rows="3" placeholder="Wir imprägnierten in Ihrem Auftrag…"></textarea>
+
+  <label class="sec-label">Positionen</label>
+  <div id="pos-list" class="pos-list"></div>
+  <button class="add-pos-btn" onclick="addPos()">+ Position hinzufügen</button>
+
+  <label class="sec-label">Berechnung</label>
+  <div class="calc-card">
+    <div class="calc-row">
+      <span class="calc-key">Netto</span>
+      <span class="calc-val" id="c-netto">–</span>
+    </div>
+    <div class="calc-row">
+      <span class="calc-key">MwSt 19 %</span>
+      <span class="calc-val" id="c-mwst">–</span>
+    </div>
+    <div id="brutto-disp" class="calc-row">
+      <span class="calc-key">Brutto</span>
+      <span class="calc-total" id="c-brutto">–</span>
+    </div>
+    <div id="brutto-inp" class="calc-row hidden">
+      <span class="calc-key">Brutto (Pauschale)</span>
+      <input type="number" id="f-brutto" class="calc-inp" placeholder="0,00"
+             step="0.01" min="0" oninput="updatePauschal()">
+    </div>
+  </div>
+  <div id="pauschal-hint" class="pauschal-hint hidden">
+    Pauschalbetrag – Netto und MwSt werden rückgerechnet (÷ 1,19).
+  </div>
+
+  <label class="sec-label">Zahlungshinweis <span style="font-weight:400;text-transform:none">(optional)</span></label>
+  <textarea id="f-hinweis" rows="2" placeholder="z. B. Betrag bereits bar bezahlt."></textarea>
+
+  <div class="form-actions">
+    <button class="btn btn-primary" id="confirm-btn" onclick="confirmInvoice()">Rechnung erstellen</button>
+    <button class="btn btn-ghost" onclick="goMain()">Abbrechen</button>
+    <div id="form-err" class="err"></div>
+  </div>
+</div>
+
+<!-- SUCCESS -->
+<div id="s-success" class="screen hidden">
+  <div class="ok-icon">✅</div>
+  <div class="ok-title">Rechnung erstellt!</div>
+  <div class="ok-nr" id="ok-nr"></div>
+  <div class="ok-file" id="ok-file"></div>
+  <div class="ok-sub">Datei liegt in Dropbox<br><em>Rechnungen_Entwurf/</em></div>
+  <button class="btn btn-primary" onclick="goMain()" style="width:auto;padding:15px 48px">
+    Neue Rechnung
+  </button>
+</div>
+
+<script>
+  const API = '';
+  let token     = localStorage.getItem('kargl_token') || '';
+  let sessionId = '';
+  let imgUrl    = '';
+  let posIdSeq  = 0;
+  const posIds  = new Set();
+
+  // ── Init ──
+  (function init() {
+    if (token) checkToken();
+    else show('login');
+  })();
+
+  async function checkToken() {
+    try {
+      const r = await fetch(`${API}/kargl/api/auth`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({token})
+      });
+      if (r.ok) show('main');
+      else { token = ''; localStorage.removeItem('kargl_token'); show('login'); }
+    } catch { show('main'); }
+  }
+
+  async function login() {
+    const t = document.getElementById('inp-token').value.trim();
+    if (!t) return;
+    try {
+      const r = await fetch(`${API}/kargl/api/auth`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({token: t})
+      });
+      if (r.ok) {
+        token = t; localStorage.setItem('kargl_token', t); show('main');
+      } else {
+        setErr('login-err', 'Ungültiger Zugangscode');
+      }
+    } catch { setErr('login-err', 'Verbindungsfehler'); }
+  }
+
+  // ── Upload & OCR ──
+  function handleFile(inp) {
+    const file = inp.files[0]; if (!file) return;
+    inp.value = '';
+    imgUrl = URL.createObjectURL(file);
+    runOcr(file);
+  }
+
+  async function runOcr(file) {
+    show('loading');
+    document.getElementById('loading-txt').textContent = 'Zettel wird ausgelesen…';
+    const fd = new FormData(); fd.append('file', file);
+    try {
+      const r = await fetch(`${API}/kargl/api/ocr`, {
+        method: 'POST', headers: {'Authorization': `Bearer ${token}`}, body: fd
+      });
+      if (r.status === 401) { token = ''; localStorage.removeItem('kargl_token'); show('login'); return; }
+      const d = await r.json();
+      if (!r.ok) { goMain(); setErr('main-err', d.error || 'OCR fehlgeschlagen'); return; }
+      sessionId = d.session_id;
+      fillForm(d.fields);
+      show('form');
+    } catch(e) {
+      goMain(); setErr('main-err', 'Verbindungsfehler: ' + e.message);
+    }
+  }
+
+  // ── Form ──
+  function fillForm(f) {
+    document.getElementById('f-anrede').value      = f.anrede      || 'Firma';
+    document.getElementById('f-name').value        = f.name        || '';
+    document.getElementById('f-strasse').value     = f.strasse_nr  || '';
+    document.getElementById('f-plz').value         = f.plz         || '';
+    document.getElementById('f-ort').value         = f.ort         || '';
+    document.getElementById('f-beschreibung').value = f.beschreibungstext || '';
+    document.getElementById('f-hinweis').value     = f.hinweis     || '';
+
+    // Vorschau
+    const th = document.getElementById('img-thumb');
+    if (imgUrl) { th.src = imgUrl; th.style.display = 'block'; }
+    else th.style.display = 'none';
+
+    // Warnung
+    document.getElementById('warn-box').classList.toggle('hidden', !f.address_uncertain);
+
+    // Positionen zurücksetzen
+    posIds.clear(); posIdSeq = 0;
+    document.getElementById('pos-list').innerHTML = '';
+    (f.positionen || []).forEach(p => addPos(p));
+
+    // Pauschal: falls keine Positionen aber brutto vorhanden
+    if (!(f.positionen || []).length && f.brutto_auf_zettel) {
+      document.getElementById('f-brutto').value = f.brutto_auf_zettel;
+    }
+    updateCalc();
+
+    const btn = document.getElementById('confirm-btn');
+    btn.disabled = false; btn.textContent = 'Rechnung erstellen';
+    setErr('form-err', '');
+
+    const name = f.name || '';
+    document.getElementById('form-sub').textContent =
+      name ? `${name} · alle Felder prüfen` : 'Alle Felder prüfen und ggf. korrigieren';
+  }
+
+  // ── Positionen ──
+  function addPos(data) {
+    const id  = ++posIdSeq;
+    posIds.add(id);
+    const div = document.createElement('div');
+    div.className = 'pos-card'; div.dataset.pid = id;
+    const nr = posIds.size;
+    div.innerHTML = `
+      <div class="pos-head">
+        <span class="pos-nr">Position ${nr}</span>
+        <button class="pos-del" type="button" onclick="delPos(${id})">✕</button>
+      </div>
+      <div class="pos-row">
+        <input type="number" id="pm-${id}" placeholder="Menge"   step="0.01" oninput="updateCalc()">
+        <input type="text"   id="pe-${id}" placeholder="cbm"      style="text-align:center" value="cbm">
+        <input type="number" id="pp-${id}" placeholder="Preis €" step="0.01" oninput="updateCalc()">
+      </div>
+      <input type="text" id="pd-${id}" placeholder="Zusatz (optional)">`;
+    document.getElementById('pos-list').appendChild(div);
+
+    if (data) {
+      document.getElementById(`pm-${id}`).value = data.menge != null ? data.menge : (data.menge_cbm || '');
+      document.getElementById(`pe-${id}`).value = data.einheit || 'cbm';
+      document.getElementById(`pp-${id}`).value = data.einzelpreis || '';
+      document.getElementById(`pd-${id}`).value = data.positions_beschreibung || '';
+    }
+    updateCalc();
+  }
+
+  function delPos(id) {
+    posIds.delete(id);
+    const el = document.querySelector(`[data-pid="${id}"]`);
+    if (el) el.remove();
+    // Nummern neu vergeben
+    document.querySelectorAll('.pos-card').forEach((c, i) => {
+      c.querySelector('.pos-nr').textContent = `Position ${i + 1}`;
+    });
+    updateCalc();
+  }
+
+  // ── Kalkulation ──
+  function updateCalc() {
+    const hasPauschal = posIds.size === 0;
+    document.getElementById('brutto-disp').classList.toggle('hidden', hasPauschal);
+    document.getElementById('brutto-inp').classList.toggle('hidden', !hasPauschal);
+    document.getElementById('pauschal-hint').classList.toggle('hidden', !hasPauschal);
+
+    if (!hasPauschal) {
+      let netto = 0;
+      posIds.forEach(id => {
+        const m = parseFloat(document.getElementById(`pm-${id}`)?.value) || 0;
+        const p = parseFloat(document.getElementById(`pp-${id}`)?.value) || 0;
+        netto += m * p;
+      });
+      netto = rnd(netto);
+      const mwst   = rnd(netto * 0.19);
+      const brutto = rnd(netto + mwst);
+      document.getElementById('c-netto').textContent  = eur(netto);
+      document.getElementById('c-mwst').textContent   = eur(mwst);
+      document.getElementById('c-brutto').textContent = eur(brutto);
+    } else {
+      updatePauschal();
+    }
+  }
+
+  function updatePauschal() {
+    const brutto = parseFloat(document.getElementById('f-brutto').value) || 0;
+    const netto  = rnd(brutto / 1.19);
+    const mwst   = rnd(netto * 0.19);
+    document.getElementById('c-netto').textContent = eur(netto);
+    document.getElementById('c-mwst').textContent  = eur(mwst);
+    document.getElementById('c-brutto').textContent = eur(brutto);
+  }
+
+  function rnd(v) { return Math.round(v * 100) / 100; }
+  function eur(v) { return v.toLocaleString('de-DE', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €'; }
+
+  // ── Bestätigen ──
+  async function confirmInvoice() {
+    const btn = document.getElementById('confirm-btn');
+    btn.disabled = true; btn.textContent = 'Wird erstellt…';
+    setErr('form-err', '');
+
+    const positionen = [];
+    posIds.forEach(id => {
+      const menge  = parseFloat(document.getElementById(`pm-${id}`)?.value);
+      const preis  = parseFloat(document.getElementById(`pp-${id}`)?.value);
+      const einheit = (document.getElementById(`pe-${id}`)?.value || 'cbm').trim();
+      const zusatz  = (document.getElementById(`pd-${id}`)?.value || '').trim();
+      if (menge > 0 && preis > 0) positionen.push({menge, einheit, einzelpreis: preis, positions_beschreibung: zusatz});
+    });
+
+    const fields = {
+      anrede:            document.getElementById('f-anrede').value,
+      name:              document.getElementById('f-name').value.trim(),
+      strasse_nr:        document.getElementById('f-strasse').value.trim(),
+      plz:               document.getElementById('f-plz').value.trim(),
+      ort:               document.getElementById('f-ort').value.trim(),
+      beschreibungstext: document.getElementById('f-beschreibung').value.trim(),
+      hinweis:           document.getElementById('f-hinweis').value.trim(),
+      positionen,
+      address_uncertain: false,
+    };
+
+    if (!positionen.length) {
+      fields.brutto_auf_zettel = parseFloat(document.getElementById('f-brutto').value) || 0;
+    }
+
+    if (!fields.name) {
+      setErr('form-err', 'Bitte Namen eingeben');
+      btn.disabled = false; btn.textContent = 'Rechnung erstellen';
+      return;
+    }
+
+    try {
+      const r = await fetch(`${API}/kargl/api/confirm`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', 'Authorization': `Bearer ${token}`},
+        body: JSON.stringify({session_id: sessionId, fields})
+      });
+      if (r.status === 401) { token = ''; localStorage.removeItem('kargl_token'); show('login'); return; }
+      const d = await r.json();
+      if (!r.ok) {
+        setErr('form-err', d.error || 'Fehler beim Erstellen');
+        btn.disabled = false; btn.textContent = 'Rechnung erstellen';
+        return;
+      }
+      document.getElementById('ok-nr').textContent   = `Rechnungsnummer: ${d.rechnungsnummer}`;
+      document.getElementById('ok-file').textContent = d.out_name;
+      show('success');
+    } catch(e) {
+      setErr('form-err', 'Verbindungsfehler: ' + e.message);
+      btn.disabled = false; btn.textContent = 'Rechnung erstellen';
+    }
+  }
+
+  // ── Navigation ──
+  function show(name) {
+    ['login','main','loading','form','success'].forEach(n =>
+      document.getElementById(`s-${n}`).classList.toggle('hidden', n !== name)
+    );
+  }
+
+  function goMain() {
+    setErr('main-err', '');
+    document.getElementById('file-inp').value = '';
+    if (imgUrl) { URL.revokeObjectURL(imgUrl); imgUrl = ''; }
+    show('main');
+  }
+
+  function setErr(id, msg) {
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = msg;
+  }
+
+  // Pull-to-Refresh
+  let ptStart = 0;
+  document.addEventListener('touchstart', e => { ptStart = e.touches[0].clientY; }, {passive:true});
+  document.addEventListener('touchend',   e => {
+    const dy = e.changedTouches[0].clientY - ptStart;
+    if (dy > 80 && window.scrollY === 0) location.reload();
+  }, {passive:true});
+</script>
+</body>
+</html>

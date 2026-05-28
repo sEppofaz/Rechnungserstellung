@@ -6,12 +6,16 @@ import hmac
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid as uuid_module
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 
 try:
@@ -32,7 +36,7 @@ import anthropic
 import dropbox
 from docxtpl import DocxTemplate
 from dropbox.files import DeletedMetadata, FolderMetadata
-from flask import Flask, abort, request
+from flask import Flask, Response, abort, request, send_file
 from PIL import Image
 
 app = Flask(__name__)
@@ -44,6 +48,7 @@ DROPBOX_INVOICE_APP_KEY       = os.environ["DROPBOX_INVOICE_APP_KEY"]
 DROPBOX_INVOICE_APP_SECRET    = os.environ["DROPBOX_INVOICE_APP_SECRET"]
 CLAUDE_API_KEY                = os.environ["CLAUDE_API_KEY"]
 INVOICE_MODEL                 = os.environ.get("CLAUDE_INVOICE_MODEL", "claude-sonnet-4-6")
+KARGL_APP_TOKEN               = os.environ.get("KARGL_APP_TOKEN", "")
 
 INVOICE_INPUT_FOLDER  = "/_Austauschordner-Sandra-sEpp/Kargl-Rechnung/Rechnungen_Input"
 INVOICE_OUTPUT_FOLDER = "/_Austauschordner-Sandra-sEpp/Kargl-Rechnung/Rechnungen_Entwurf"
@@ -54,6 +59,9 @@ INVOICE_REGISTER_FILE = "/_Austauschordner-Sandra-sEpp/Kargl-Rechnung/_Rechnungs
 
 INVOICE_CURSOR_FILE = "/opt/kargl-invoice/invoice_cursor.txt"
 INVOICE_TEMPLATE    = "/opt/kargl-invoice/template.docx"
+SESSIONS_DIR        = Path("/opt/kargl-invoice/sessions")
+KARGL_ICONS_DIR     = Path("/opt/kargl-invoice/icons")
+KARGL_HTML_PATH     = Path(__file__).parent / "kargl_app.html"
 
 MEDIA_TYPES = {
     ".pdf":  "application/pdf",
@@ -73,6 +81,114 @@ _REG_HEADERS  = ["Rechnungsnummer", "Datum", "Anrede", "Nachname", "Vorname",
 
 def log(msg: str) -> None:
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}", flush=True)
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+def require_token(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if not KARGL_APP_TOKEN or not auth.startswith("Bearer ") or auth[7:] != KARGL_APP_TOKEN:
+            return {"error": "Unauthorized"}, 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ── ODT-Konvertierung ─────────────────────────────────────────────────────────
+
+def convert_to_odt(docx_path: str) -> tuple[str, str]:
+    """Konvertiert .docx → .odt via LibreOffice headless. Gibt (pfad, extension) zurück.
+    Fällt auf .docx zurück wenn LibreOffice fehlt."""
+    lo = shutil.which("libreoffice") or shutil.which("soffice")
+    if not lo:
+        log("⚠️  LibreOffice nicht gefunden – Fallback .docx")
+        return docx_path, ".docx"
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        subprocess.run(
+            [lo, "--headless", "--convert-to", "odt", "--outdir", tmp_dir, docx_path],
+            check=True, timeout=30, capture_output=True,
+        )
+        odt_src = Path(tmp_dir) / (Path(docx_path).stem + ".odt")
+        if not odt_src.exists():
+            log("⚠️  LibreOffice erzeugte keine ODT-Datei – Fallback .docx")
+            return docx_path, ".docx"
+        final = tempfile.mktemp(suffix=".odt")
+        shutil.move(str(odt_src), final)
+        return final, ".odt"
+    except Exception as e:
+        log(f"⚠️  LibreOffice Fehler: {e} – Fallback .docx")
+        return docx_path, ".docx"
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ── Session-Management (App-OCR) ──────────────────────────────────────────────
+
+def _cleanup_old_sessions() -> None:
+    if not SESSIONS_DIR.exists():
+        return
+    cutoff = datetime.now().timestamp() - 24 * 3600
+    for f in SESSIONS_DIR.iterdir():
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except Exception:
+            pass
+
+
+# ── App-Icons ─────────────────────────────────────────────────────────────────
+
+def _ensure_kargl_icons() -> None:
+    KARGL_ICONS_DIR.mkdir(exist_ok=True)
+    for size in (192, 512, 180):
+        p = KARGL_ICONS_DIR / f"icon-{size}.png"
+        if not p.exists():
+            _generate_kargl_icon(size, p)
+
+
+def _generate_kargl_icon(size: int, path: Path) -> None:
+    from PIL import Image as PILImage, ImageDraw, ImageFont
+    bg = (146, 64, 14)
+    img = PILImage.new("RGB", (size, size), bg)
+    draw = ImageDraw.Draw(img)
+    text = "K"
+    font_size = int(size * 0.55)
+    font = None
+    for font_path in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ]:
+        if Path(font_path).exists():
+            try:
+                from PIL import ImageFont
+                font = ImageFont.truetype(font_path, font_size)
+                break
+            except Exception:
+                pass
+    if font is None:
+        from PIL import ImageFont
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), text, font=font)
+    x = (size - (bbox[2] - bbox[0])) // 2 - bbox[0]
+    y = (size - (bbox[3] - bbox[1])) // 2 - bbox[1]
+    draw.text((x, y), text, fill=(255, 255, 255), font=font)
+    img.save(str(path))
+    log(f"🖼  Kargl-Icon erstellt: {path}")
+
+
+# ── Startup ───────────────────────────────────────────────────────────────────
+
+def _startup() -> None:
+    SESSIONS_DIR.mkdir(exist_ok=True)
+    try:
+        _ensure_kargl_icons()
+    except Exception as e:
+        log(f"⚠️  Icon-Generierung: {e}")
+
+
+_startup()
 
 
 # ── Dropbox ───────────────────────────────────────────────────────────────────
@@ -627,6 +743,7 @@ def process_invoice(dbx: dropbox.Dropbox, dropbox_path: str) -> None:
 
     tmp_file      = None
     tmp_docx      = None
+    tmp_odt       = None
     tmp_converted = None
 
     try:
@@ -655,6 +772,7 @@ def process_invoice(dbx: dropbox.Dropbox, dropbox_path: str) -> None:
         invoice_data = enrich_invoice_address(dbx, invoice_data)
         calc         = calculate_and_validate(invoice_data)
         tmp_docx     = build_docx(invoice_data, calc, rechnungsnummer)
+        tmp_odt, out_ext = convert_to_odt(tmp_docx)
 
         clean_name   = re.sub(r"[^\w\-]", "_", invoice_data.get("name", "Unbekannt"))
         datum_str    = datetime.now().strftime("%Y-%m-%d")
@@ -662,11 +780,11 @@ def process_invoice(dbx: dropbox.Dropbox, dropbox_path: str) -> None:
         needs_prufen = (invoice_data.get("address_uncertain")
                         or not calc["netto_ok"] or not calc["brutto_ok"])
         nr_prefix    = f"_prüfen_{rechnungsnummer}" if needs_prufen else rechnungsnummer
-        out_name     = f"{nr_prefix}_Rechnung_{clean_name}_{datum_str}_{brutto_str}€.docx"
+        out_name     = f"{nr_prefix}_Rechnung_{clean_name}_{datum_str}_{brutto_str}€{out_ext}"
         out_path     = f"{INVOICE_OUTPUT_FOLDER}/{out_name}"
 
-        with open(tmp_docx, "rb") as f:
-            dbx.files_upload(f.read(), out_path, mode=dropbox.files.WriteMode.overwrite, mute=True)
+        with open(tmp_odt, "rb") as fh:
+            dbx.files_upload(fh.read(), out_path, mode=dropbox.files.WriteMode.overwrite, mute=True)
         log(f"⬆️  Hochgeladen: {out_path}")
 
         save_to_invoice_register(dbx, rechnungsnummer, invoice_data, calc)
@@ -686,6 +804,8 @@ def process_invoice(dbx: dropbox.Dropbox, dropbox_path: str) -> None:
         if tmp_file:      Path(tmp_file).unlink(missing_ok=True)
         if tmp_converted: Path(tmp_converted).unlink(missing_ok=True)
         if tmp_docx:      Path(tmp_docx).unlink(missing_ok=True)
+        if tmp_odt and tmp_odt != tmp_docx:
+            Path(tmp_odt).unlink(missing_ok=True)
 
 
 # ── Dropbox-Cursor ────────────────────────────────────────────────────────────
@@ -753,6 +873,172 @@ def webhook_invoice():
     dbx = get_dropbox_client()
     threading.Thread(target=process_invoice_changes, args=(dbx,), daemon=True).start()
     return "", 200
+
+
+# ── Kargl App ─────────────────────────────────────────────────────────────────
+
+@app.route("/kargl/")
+@app.route("/kargl")
+def kargl_index():
+    if KARGL_HTML_PATH.exists():
+        return KARGL_HTML_PATH.read_text("utf-8"), 200, {"Content-Type": "text/html; charset=utf-8"}
+    return "App nicht gefunden", 404
+
+
+@app.route("/kargl/manifest.json")
+def kargl_manifest():
+    return {
+        "name": "Kargl Rechnung",
+        "short_name": "Kargl",
+        "start_url": "/kargl/",
+        "display": "standalone",
+        "background_color": "#1c1c1e",
+        "theme_color": "#92400e",
+        "icons": [
+            {"src": "/kargl/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/kargl/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+        ],
+    }
+
+
+@app.route("/kargl/icon-<size>.png")
+def kargl_icon(size):
+    p = KARGL_ICONS_DIR / f"icon-{size}.png"
+    if not p.exists():
+        abort(404)
+    return p.read_bytes(), 200, {"Content-Type": "image/png", "Cache-Control": "public, max-age=86400"}
+
+
+@app.route("/kargl/api/auth", methods=["POST"])
+def kargl_auth():
+    body  = request.json or {}
+    token = body.get("token", "")
+    if not KARGL_APP_TOKEN or token != KARGL_APP_TOKEN:
+        return {"error": "Ungültiger Code"}, 401
+    return {"ok": True}
+
+
+@app.route("/kargl/api/ocr", methods=["POST"])
+@require_token
+def kargl_ocr():
+    f = request.files.get("file")
+    if not f:
+        return {"error": "Kein Bild"}, 400
+
+    suffix = Path(f.filename or "x.jpg").suffix.lower()
+    if suffix not in {".pdf", ".jpg", ".jpeg", ".png", ".heic", ".heif"}:
+        return {"error": "Nicht unterstütztes Format"}, 400
+
+    SESSIONS_DIR.mkdir(exist_ok=True)
+    _cleanup_old_sessions()
+
+    session_id = uuid_module.uuid4().hex
+    img_path   = SESSIONS_DIR / f"{session_id}{suffix}"
+    f.save(str(img_path))
+
+    process_path   = str(img_path)
+    process_suffix = suffix
+    if suffix in {".heic", ".heif"} and _HEIC_SUPPORTED:
+        jpg_path = str(SESSIONS_DIR / f"{session_id}.jpg")
+        with Image.open(process_path) as img:
+            img.convert("RGB").save(jpg_path, format="JPEG", quality=92)
+        img_path.unlink(missing_ok=True)
+        img_path       = SESSIONS_DIR / f"{session_id}.jpg"
+        process_path   = str(img_path)
+        process_suffix = ".jpg"
+        suffix         = ".jpg"
+
+    try:
+        invoice_data = extract_invoice_data(process_path, process_suffix)
+        log(f"🤖  App OCR: {invoice_data.get('name', '?')}")
+
+        meta = {"original_suffix": suffix, "created_at": datetime.now().isoformat()}
+        (SESSIONS_DIR / f"{session_id}.json").write_text(json.dumps(meta, ensure_ascii=False))
+
+        return {"session_id": session_id, "fields": invoice_data}
+
+    except Exception as e:
+        img_path.unlink(missing_ok=True)
+        log(f"❌  App OCR Fehler: {e}")
+        return {"error": f"OCR fehlgeschlagen: {e}"}, 500
+
+
+@app.route("/kargl/api/confirm", methods=["POST"])
+@require_token
+def kargl_confirm():
+    body       = request.json or {}
+    session_id = body.get("session_id", "")
+    fields     = body.get("fields", {})
+
+    if not session_id:
+        return {"error": "Keine Session"}, 400
+
+    session_file = SESSIONS_DIR / f"{session_id}.json"
+    if not session_file.exists():
+        return {"error": "Session abgelaufen – bitte neu scannen"}, 404
+
+    meta       = json.loads(session_file.read_text())
+    img_suffix = meta.get("original_suffix", ".jpg")
+    img_path   = SESSIONS_DIR / f"{session_id}{img_suffix}"
+
+    dbx  = get_dropbox_client()
+    calc = calculate_and_validate(fields)
+
+    # Neuen Kunden in Adressen.xlsx eintragen
+    name = fields.get("name", "")
+    if name and not find_in_address_excel(dbx, name):
+        add_to_address_excel(
+            dbx, name,
+            fields.get("strasse_nr", ""), fields.get("plz", ""), fields.get("ort", ""),
+            street_ok=True, location_ok=True, street_corrected=False,
+        )
+
+    rechnungsnummer = get_next_invoice_number(dbx)
+
+    tmp_docx = None
+    tmp_odt  = None
+    try:
+        tmp_docx = build_docx(fields, calc, rechnungsnummer)
+        tmp_odt, out_ext = convert_to_odt(tmp_docx)
+
+        clean_name   = re.sub(r"[^\w\-]", "_", name or "Unbekannt")
+        datum_str    = datetime.now().strftime("%Y-%m-%d")
+        brutto_str   = f"{calc['brutto']:.2f}"
+        needs_prufen = (
+            fields.get("address_uncertain")
+            or not calc["netto_ok"]
+            or not calc["brutto_ok"]
+        )
+        nr_prefix = f"_prüfen_{rechnungsnummer}" if needs_prufen else rechnungsnummer
+        out_name  = f"{nr_prefix}_Rechnung_{clean_name}_{datum_str}_{brutto_str}€{out_ext}"
+        out_path  = f"{INVOICE_OUTPUT_FOLDER}/{out_name}"
+
+        with open(tmp_odt, "rb") as fh:
+            dbx.files_upload(fh.read(), out_path, mode=dropbox.files.WriteMode.overwrite, mute=True)
+        log(f"⬆️  App: Hochgeladen: {out_path}")
+
+        save_to_invoice_register(dbx, rechnungsnummer, fields, calc)
+
+        # Original-Bild archivieren
+        if img_path.exists():
+            done_name = f"{rechnungsnummer}_Eingang_{clean_name}_{datum_str}_{brutto_str}€{img_suffix}"
+            done_path = f"{INVOICE_DONE_FOLDER}/{done_name}"
+            with open(img_path, "rb") as fh:
+                dbx.files_upload(fh.read(), done_path, mode=dropbox.files.WriteMode.overwrite, mute=True)
+            log(f"📁  App: Original archiviert: {done_path}")
+
+        session_file.unlink(missing_ok=True)
+        img_path.unlink(missing_ok=True)
+
+        log(f"✅  App: Rechnung erstellt: {out_name}")
+        return {"out_name": out_name, "rechnungsnummer": rechnungsnummer}
+
+    except Exception as e:
+        log(f"❌  App Confirm Fehler: {e}")
+        return {"error": str(e)}, 500
+    finally:
+        if tmp_docx:                      Path(tmp_docx).unlink(missing_ok=True)
+        if tmp_odt and tmp_odt != tmp_docx: Path(tmp_odt).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
