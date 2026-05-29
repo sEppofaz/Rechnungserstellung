@@ -586,6 +586,13 @@
     ALL_SCREENS.forEach(n =>
       document.getElementById(`s-${n}`).classList.toggle('hidden', n !== name)
     );
+    // Pinch-Zoom nur auf dem PDF-Screen erlauben
+    const vp = document.querySelector('meta[name="viewport"]');
+    if (name === 'pdf') {
+      vp.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
+    } else {
+      vp.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1';
+    }
     if (name === 'login') showLoginScreen(localStorage.getItem('kargl_locked') === '1');
   }
 
@@ -921,12 +928,25 @@
 
   async function sharePdf() {
     if (!currentPdfUrl) return;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: 'Rechnung', url: currentPdfUrl });
-      } catch(e) { /* abgebrochen */ }
-    } else {
-      window.open(currentPdfUrl, '_blank');
+    const btn = document.getElementById('pdf-share-btn');
+    btn.textContent = 'Lädt…';
+    btn.disabled = true;
+    try {
+      const response = await fetch(currentPdfUrl);
+      const blob     = await response.blob();
+      const file     = new File([blob], 'Rechnung.pdf', { type: 'application/pdf' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Rechnung' });
+      } else if (navigator.share) {
+        await navigator.share({ url: currentPdfUrl, title: 'Rechnung' });
+      } else {
+        window.open(currentPdfUrl, '_blank');
+      }
+    } catch(e) {
+      if (e.name !== 'AbortError') window.open(currentPdfUrl, '_blank');
+    } finally {
+      btn.textContent = 'Teilen';
+      btn.disabled = false;
     }
   }
 
