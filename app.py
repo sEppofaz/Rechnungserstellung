@@ -1220,13 +1220,14 @@ def kargl_rechnungen_list():
         for row in ws.iter_rows(min_row=2, values_only=True):
             if row[0]:
                 rechnungen.append({
-                    "nr":       str(row[0] or ""),
-                    "datum":    str(row[1] or ""),
-                    "anrede":   str(row[2] or ""),
-                    "nachname": str(row[3] or ""),
-                    "vorname":  str(row[4] or ""),
-                    "brutto":   float(row[8]) if row[8] else 0,
-                    "status":   "unknown",
+                    "nr":           str(row[0] or ""),
+                    "datum":        str(row[1] or ""),
+                    "anrede":       str(row[2] or ""),
+                    "nachname":     str(row[3] or ""),
+                    "vorname":      str(row[4] or ""),
+                    "beschreibung": str(row[5] or ""),
+                    "brutto":       float(row[8]) if row[8] else 0,
+                    "status":       "unknown",
                 })
         rechnungen.reverse()
         rechnungen = rechnungen[:60]
@@ -1252,6 +1253,25 @@ def kargl_rechnungen_list():
         return {"rechnungen": rechnungen}
     except Exception as e:
         log(f"⚠️  Rechnungen lesen: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.route("/kargl/api/leistungen", methods=["GET"])
+@require_token
+def kargl_leistungen():
+    dbx = get_dropbox_client()
+    try:
+        wb = _ensure_register_excel(dbx)
+        ws = wb.active
+        counts: dict[str, int] = {}
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            v = str(row[5] or "").strip()
+            if v:
+                counts[v] = counts.get(v, 0) + 1
+        sorted_list = sorted(counts, key=lambda k: -counts[k])
+        return {"leistungen": sorted_list}
+    except Exception as e:
+        log(f"⚠️  Leistungen lesen: {e}")
         return {"error": str(e)}, 500
 
 
@@ -1468,6 +1488,29 @@ def kargl_rechnung_neu_erstellen(nr):
         if tmp_docx:                          Path(tmp_docx).unlink(missing_ok=True)
         if tmp_odt and tmp_odt != tmp_docx:   Path(tmp_odt).unlink(missing_ok=True)
         if tmp_pdf:                           Path(tmp_pdf).unlink(missing_ok=True)
+
+
+@app.route("/kargl/api/rechnungen/<nr>/leistung", methods=["POST"])
+@require_token
+def kargl_leistung_update(nr):
+    if not re.match(r'^[\w\-_]+$', nr):
+        abort(400)
+    body         = request.json or {}
+    beschreibung = str(body.get("beschreibung") or "")[:500]
+    dbx = get_dropbox_client()
+    try:
+        wb = _ensure_register_excel(dbx)
+        ws = wb.active
+        for row in ws.iter_rows(min_row=2):
+            if str(row[0].value or "").strip() == nr:
+                row[5].value = beschreibung
+                _upload_excel(dbx, wb, INVOICE_REGISTER_FILE)
+                log(f"📊  Leistung aktualisiert: {nr}")
+                return {"ok": True}
+        return {"error": "Rechnungsnummer nicht gefunden"}, 404
+    except Exception as e:
+        log(f"⚠️  Leistung aktualisieren {nr}: {e}")
+        return {"error": str(e)}, 500
 
 
 if __name__ == "__main__":

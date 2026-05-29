@@ -314,6 +314,37 @@
     }
     #btn-info:active { background: rgba(255,255,255,.3); }
 
+    /* ── LEISTUNG INLINE-EDIT ── */
+    .rg-leistung {
+      font-size: 13px; color: var(--text2); margin-bottom: 4px;
+      display: flex; align-items: flex-start; gap: 6px; cursor: pointer;
+    }
+    .rg-leistung-text {
+      flex: 1; overflow: hidden; display: -webkit-box;
+      -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    }
+    .rg-leistung-icon { flex-shrink: 0; opacity: 0.45; font-size: 12px; }
+    .rg-leistung-editbox { width: 100%; display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+    .rg-leistung-editbox textarea { font-size: 14px; padding: 10px 12px; border-radius: 10px; resize: vertical; }
+    .rg-leistung-btns { display: flex; gap: 6px; }
+    .rg-leistung-btns button {
+      flex: 1; padding: 9px; border-radius: 9px; border: 1.5px solid var(--bg3);
+      background: var(--bg3); color: var(--text); font-size: 13px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+    }
+    .rg-leistung-btns .rg-lb-save { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .rg-leistung-btns button:active { opacity: 0.7; }
+
+    /* ── LEISTUNG CHIPS ── */
+    .leistung-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chip {
+      background: var(--bg3); border: 1.5px solid var(--bg3); border-radius: 20px;
+      padding: 6px 13px; font-size: 13px; color: var(--text);
+      cursor: pointer; font-family: inherit; max-width: 100%;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .chip:active { opacity: 0.65; }
+
     /* ── SCROLL-TO-TOP ── */
     .back-top {
       position: fixed; bottom: calc(24px + var(--safe-b)); right: 16px;
@@ -430,6 +461,7 @@
 
   <label class="sec-label">Leistungsbeschreibung</label>
   <textarea id="f-beschreibung" rows="3" placeholder="Wir imprägnierten in Ihrem Auftrag…"></textarea>
+  <div id="leistung-chips" class="leistung-chips"></div>
 
   <label class="sec-label">Positionen</label>
   <div id="pos-list" class="pos-list"></div>
@@ -565,6 +597,8 @@
   let pdfReturnScreen = 'success';
   let currentPdfUrl   = '';
   let editNr          = null;
+  let rechnungenData  = [];
+  let leistungen      = [];
 
   const ALL_SCREENS = ['login','main','loading','form','success','adressen','rechnungen','pdf'];
 
@@ -610,7 +644,7 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({token})
       });
-      if (r.ok) show('main');
+      if (r.ok) { show('main'); loadLeistungen(); }
       else { token = ''; localStorage.removeItem('kargl_token'); show('login'); }
     } catch { show('main'); }
   }
@@ -628,6 +662,7 @@
         localStorage.setItem('kargl_token', t);
         localStorage.removeItem('kargl_locked');
         show('main');
+        loadLeistungen();
       } else {
         setErr('login-err', 'Ungültiger Zugangscode');
       }
@@ -1111,7 +1146,8 @@
       if (r.status === 401) { token = ''; localStorage.removeItem('kargl_token'); show('login'); return; }
       const d = await r.json();
       if (!r.ok) { setErr('rg-err', d.error || 'Fehler'); document.getElementById('rg-list').innerHTML = ''; return; }
-      renderRechnungen(d.rechnungen);
+      rechnungenData = d.rechnungen;
+      renderRechnungen(rechnungenData);
     } catch(e) {
       setErr('rg-err', 'Verbindungsfehler');
       document.getElementById('rg-list').innerHTML = '';
@@ -1169,6 +1205,10 @@
             <span class="rg-datum">${esc(r.datum)}</span>
           </div>
           <div class="rg-name">${esc(name)}</div>
+          <div class="rg-leistung" id="rg-l-${i}" onclick="startLeistungEdit('${esc(r.nr)}',${i},this)">
+            <span class="rg-leistung-text">${esc(r.beschreibung || '–')}</span>
+            <span class="rg-leistung-icon">✏</span>
+          </div>
           <div class="rg-brutto">${betrag}</div>
           <div class="rg-actions">
             <button class="rg-btn rg-btn-primary" onclick="openRechnungPdf('${esc(r.nr)}')">PDF öffnen</button>
@@ -1201,6 +1241,86 @@
     } catch(e) {
       btn.disabled = false; btn.textContent = 'Erledigt';
       setErr('rg-err', 'Verbindungsfehler');
+    }
+  }
+
+  // ── Leistungen ──
+  async function loadLeistungen() {
+    try {
+      const r = await fetch(`${API}/kargl/api/leistungen`, {
+        headers: {'Authorization': `Bearer ${token}`}
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      leistungen = d.leistungen || [];
+      renderLeistungChips();
+    } catch {}
+  }
+
+  function renderLeistungChips() {
+    const el = document.getElementById('leistung-chips');
+    if (!el) return;
+    if (!leistungen.length) { el.innerHTML = ''; return; }
+    el.innerHTML = leistungen.map((l, i) => {
+      const label = l.length > 50 ? l.slice(0, 50) + '…' : l;
+      return `<button class="chip" type="button" onclick="applyLeistungChip(${i})">${esc(label)}</button>`;
+    }).join('');
+  }
+
+  function applyLeistungChip(idx) {
+    document.getElementById('f-beschreibung').value = leistungen[idx] || '';
+  }
+
+  function startLeistungEdit(nr, i, el) {
+    const entry = rechnungenData.find(r => r.nr === nr);
+    const curr  = entry ? entry.beschreibung : '';
+    el.onclick  = null;
+    el.innerHTML = `
+      <div class="rg-leistung-editbox">
+        <textarea id="rg-lt-${i}" rows="3">${esc(curr)}</textarea>
+        <div class="rg-leistung-btns">
+          <button type="button" onclick="cancelLeistungEdit('${esc(nr)}',${i})">Abbrechen</button>
+          <button type="button" class="rg-lb-save" id="rg-ls-${i}"
+                  onclick="saveLeistung('${esc(nr)}',${i})">Speichern</button>
+        </div>
+        <div class="err" id="rg-le-${i}"></div>
+      </div>`;
+    document.getElementById(`rg-lt-${i}`)?.focus();
+  }
+
+  function cancelLeistungEdit(nr, i) {
+    const el    = document.getElementById(`rg-l-${i}`);
+    if (!el) return;
+    const entry = rechnungenData.find(r => r.nr === nr);
+    const text  = entry ? entry.beschreibung : '';
+    el.innerHTML = `<span class="rg-leistung-text">${esc(text || '–')}</span><span class="rg-leistung-icon">✏</span>`;
+    el.onclick = () => startLeistungEdit(nr, i, el);
+  }
+
+  async function saveLeistung(nr, i) {
+    const ta      = document.getElementById(`rg-lt-${i}`);
+    const saveBtn = document.getElementById(`rg-ls-${i}`);
+    const text    = ta?.value.trim() || '';
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '…'; }
+    setErr(`rg-le-${i}`, '');
+    try {
+      const r = await fetch(`${API}/kargl/api/rechnungen/${encodeURIComponent(nr)}/leistung`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+        body: JSON.stringify({beschreibung: text})
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setErr(`rg-le-${i}`, d.error || 'Fehler');
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Speichern'; }
+        return;
+      }
+      const entry = rechnungenData.find(r => r.nr === nr);
+      if (entry) entry.beschreibung = text;
+      cancelLeistungEdit(nr, i);
+    } catch(e) {
+      setErr(`rg-le-${i}`, 'Verbindungsfehler');
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Speichern'; }
     }
   }
 
