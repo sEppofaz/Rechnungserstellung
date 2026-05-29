@@ -474,7 +474,7 @@
   <div class="ok-file" id="ok-file"></div>
   <div class="done-actions">
     <button id="btn-pdf-open" class="btn btn-primary" onclick="openPdfFromSession()" style="display:none">
-      Rechnung anzeigen / Drucken
+      PDF öffnen / Drucken
     </button>
     <button id="btn-back-from-done" class="btn btn-ghost" onclick="goMain()">Neue Rechnung erstellen</button>
     <button class="btn btn-ghost" onclick="loadAdressen()">Adressen bearbeiten</button>
@@ -514,8 +514,7 @@
   <div class="pdf-icon">📄</div>
   <div class="pdf-name" id="pdf-name"></div>
   <div class="pdf-actions">
-    <button class="btn btn-primary" onclick="openPdfExternal()">PDF öffnen</button>
-    <button class="btn btn-ghost" id="pdf-share-btn" onclick="sharePdf()">Teilen / Drucken</button>
+    <button class="btn btn-primary" id="pdf-share-btn" onclick="sharePdf()">PDF öffnen / Drucken</button>
   </div>
 </div>
 
@@ -919,21 +918,17 @@
   // ── PDF-Viewer ──
   function openPdfFromSession() {
     if (!pdfSessionId) return;
-    pdfReturnScreen = 'success';
     currentPdfUrl = `${API}/kargl/api/sessions/${pdfSessionId}/pdf?token=${encodeURIComponent(token)}`;
     document.getElementById('pdf-name').textContent = document.getElementById('ok-file').textContent || '';
+    pdfReturnScreen = 'success';
     show('pdf');
   }
 
   function openRechnungPdf(nr) {
-    pdfReturnScreen = 'rechnungen';
     currentPdfUrl = `${API}/kargl/api/rechnungen/${encodeURIComponent(nr)}/pdf?token=${encodeURIComponent(token)}`;
     document.getElementById('pdf-name').textContent = nr + '_Rechnung.pdf';
+    pdfReturnScreen = 'rechnungen';
     show('pdf');
-  }
-
-  function openPdfExternal() {
-    if (currentPdfUrl) window.open(currentPdfUrl, '_blank');
   }
 
   function closePdf() {
