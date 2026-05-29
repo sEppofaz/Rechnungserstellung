@@ -548,6 +548,7 @@
       <button class="btn btn-ghost" onclick="closeAddrModal()" style="flex:1">Abbrechen</button>
       <button class="btn btn-primary" id="ae-save-btn" onclick="saveAddr()" style="flex:2">Speichern</button>
     </div>
+    <button class="btn btn-danger" id="ae-del-btn" onclick="deleteAddrFromModal()" style="margin-top:4px">Löschen</button>
   </div>
 </div>
 
@@ -996,12 +997,16 @@
           <div class="addr-name">${esc(a.name)}</div>
           <div class="addr-detail">${esc(a.strasse)}, ${esc(a.plz)} ${esc(a.ort)}</div>
         </div>
-        <div class="addr-btns">
-          <button class="addr-edit-btn" onclick="editAddrByIdx(${i})">Bearbeiten</button>
-          <button class="addr-del-btn" onclick="deleteAddrByIdx(${i})">Löschen</button>
-        </div>
+        <button class="addr-edit-btn" onclick="editAddrByIdx(${i})">Bearbeiten</button>
       </div>
     `).join('');
+  }
+
+  let currentAddrIdx = -1;
+
+  function deleteAddrFromModal() {
+    if (currentAddrIdx < 0) return;
+    deleteAddrByIdx(currentAddrIdx);
   }
 
   async function deleteAddrByIdx(idx) {
@@ -1015,6 +1020,7 @@
       const d = await r.json();
       if (r.ok) {
         addrData.splice(idx, 1);
+        closeAddrModal();
         renderAdressen(addrData);
       } else {
         setErr('addr-err', d.error || 'Fehler beim Löschen');
@@ -1025,6 +1031,7 @@
   }
 
   function editAddrByIdx(idx) {
+    currentAddrIdx = idx;
     const a = addrData[idx];
     document.getElementById('ae-row').value    = a.row;
     document.getElementById('ae-name').value   = a.name;
