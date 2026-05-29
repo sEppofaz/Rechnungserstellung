@@ -231,23 +231,17 @@
     .rg-btn:disabled { opacity: 0.45; cursor: default; }
 
     /* ── PDF-VIEWER ── */
-    #s-pdf {
-      padding: 0; min-height: 100svh; display: flex; flex-direction: column;
-    }
-    #s-pdf.hidden { display: none !important; }
-    .pdf-bar {
+    #s-pdf { align-items: center; justify-content: center; gap: 0; padding-top: calc(var(--safe-t) + 4px); }
+    .pdf-nav {
       display: flex; align-items: center; justify-content: space-between;
-      padding: calc(var(--safe-t) + 12px) 16px 12px;
-      background: var(--bg); border-bottom: 1px solid var(--bg3);
-      flex-shrink: 0;
+      width: 100%; padding-bottom: 14px; border-bottom: 1px solid var(--bg3); margin-bottom: 32px;
     }
-    .pdf-bar-title { font-size: 17px; font-weight: 700; }
-    .pdf-share-btn {
-      background: none; border: none; color: var(--primary); font-size: 16px;
-      font-weight: 600; cursor: pointer; font-family: inherit; padding: 4px 0;
-      min-width: 60px; text-align: right;
+    .pdf-icon { font-size: 72px; margin-bottom: 16px; }
+    .pdf-name {
+      font-size: 13px; color: var(--text2); text-align: center;
+      padding: 0 8px; word-break: break-all; margin-bottom: 32px; line-height: 1.5;
     }
-    #pdf-frame { flex: 1; width: 100%; border: none; background: #fff; }
+    .pdf-actions { width: 100%; display: flex; flex-direction: column; gap: 10px; }
 
     /* ── MODAL (Adresse bearbeiten) ── */
     .modal-overlay {
@@ -511,13 +505,18 @@
 </div>
 
 <!-- ── PDF-VIEWER ── -->
-<div id="s-pdf" class="hidden">
-  <div class="pdf-bar">
+<div id="s-pdf" class="screen hidden">
+  <div class="pdf-nav">
     <button class="nav-back" onclick="closePdf()">&#8592; Zurück</button>
-    <span class="pdf-bar-title">Rechnung</span>
-    <button class="pdf-share-btn" id="pdf-share-btn" onclick="sharePdf()">Teilen</button>
+    <span class="nav-title">Rechnung</span>
+    <span class="nav-spacer"></span>
   </div>
-  <iframe id="pdf-frame" src=""></iframe>
+  <div class="pdf-icon">📄</div>
+  <div class="pdf-name" id="pdf-name"></div>
+  <div class="pdf-actions">
+    <button class="btn btn-primary" onclick="openPdfExternal()">PDF öffnen</button>
+    <button class="btn btn-ghost" id="pdf-share-btn" onclick="sharePdf()">Teilen / Drucken</button>
+  </div>
 </div>
 
 <!-- ── ADRESSE BEARBEITEN (Modal) ── -->
@@ -587,13 +586,6 @@
     ALL_SCREENS.forEach(n =>
       document.getElementById(`s-${n}`).classList.toggle('hidden', n !== name)
     );
-    // Pinch-Zoom nur auf dem PDF-Screen erlauben
-    const vp = document.querySelector('meta[name="viewport"]');
-    if (name === 'pdf') {
-      vp.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
-    } else {
-      vp.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1';
-    }
     if (name === 'login') showLoginScreen(localStorage.getItem('kargl_locked') === '1');
   }
 
@@ -911,19 +903,23 @@
     if (!pdfSessionId) return;
     pdfReturnScreen = 'success';
     currentPdfUrl = `${API}/kargl/api/sessions/${pdfSessionId}/pdf?token=${encodeURIComponent(token)}`;
-    document.getElementById('pdf-frame').src = currentPdfUrl;
+    document.getElementById('pdf-name').textContent = document.getElementById('ok-file').textContent || '';
     show('pdf');
   }
 
   function openRechnungPdf(nr) {
     pdfReturnScreen = 'rechnungen';
     currentPdfUrl = `${API}/kargl/api/rechnungen/${encodeURIComponent(nr)}/pdf?token=${encodeURIComponent(token)}`;
-    document.getElementById('pdf-frame').src = currentPdfUrl;
+    document.getElementById('pdf-name').textContent = nr + '_Rechnung.pdf';
     show('pdf');
   }
 
+  function openPdfExternal() {
+    if (currentPdfUrl) window.open(currentPdfUrl, '_blank');
+  }
+
   function closePdf() {
-    document.getElementById('pdf-frame').src = '';
+    currentPdfUrl = '';
     show(pdfReturnScreen);
   }
 
