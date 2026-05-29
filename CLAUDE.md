@@ -133,7 +133,9 @@ Wird automatisch aus `_Rechnungsregister.xlsx` hochgezählt. Jahreswechsel → R
 | GET | `/kargl/api/adressen` | Adressliste aus _Adressen.xlsx |
 | POST | `/kargl/api/adressen/{row}` | Adresszeile aktualisieren |
 | POST | `/kargl/api/adressen/{row}/loeschen` | Adresszeile löschen |
-| GET | `/kargl/api/rechnungen` | Rechnungsliste aus Register (max. 60, neueste zuerst) + status |
+| GET | `/kargl/api/rechnungen` | Rechnungsliste aus Register (max. 60, neueste zuerst) + status + beschreibung |
+| GET | `/kargl/api/leistungen` | Unique Leistungstexte aus Register (Spalte F), nach Häufigkeit sortiert |
+| POST | `/kargl/api/rechnungen/{nr}/leistung` | Leistungstext (Spalte F) für Rechnungsnummer im Register aktualisieren |
 | GET | `/kargl/api/rechnungen/{nr}/pdf` | ODT → PDF (sucht in Entwurf + Erledigt) |
 | POST | `/kargl/api/rechnungen/{nr}/verschieben` | ODT Entwurf → Erledigt |
 | GET | `/kargl/api/rechnungen/{nr}/felder` | Bekannte Felder für Bearbeiten-Flow |
