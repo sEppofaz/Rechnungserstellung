@@ -1175,6 +1175,22 @@ def kargl_adressen_update(row):
         return {"error": str(e)}, 500
 
 
+@app.route("/kargl/api/adressen/<int:row>/loeschen", methods=["POST"])
+@require_token
+def kargl_adressen_delete(row):
+    dbx = get_dropbox_client()
+    try:
+        wb = _ensure_address_excel(dbx)
+        ws = wb.active
+        ws.delete_rows(row)
+        _upload_excel(dbx, wb, INVOICE_ADDRESS_FILE)
+        log(f"📋  Adresse gelöscht: Zeile {row}")
+        return {"ok": True}
+    except Exception as e:
+        log(f"⚠️  Adresse löschen: {e}")
+        return {"error": str(e)}, 500
+
+
 # ── Rechnungsordner-Endpoints ─────────────────────────────────────────────────
 
 def _list_folder_names(dbx: dropbox.Dropbox, path: str) -> set[str]:

@@ -199,6 +199,14 @@
       cursor: pointer; font-family: inherit; flex-shrink: 0;
     }
     .addr-edit-btn:active { opacity: 0.7; }
+    .addr-del-btn {
+      background: none; border: none; color: var(--danger);
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      font-family: inherit; flex-shrink: 0; padding: 4px 0;
+      text-align: right;
+    }
+    .addr-del-btn:active { opacity: 0.6; }
+    .addr-btns { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
     .list-empty { text-align: center; color: var(--text2); padding: 40px 0; font-size: 15px; }
 
     /* ── RECHNUNGEN ── */
@@ -911,8 +919,15 @@
     show(pdfReturnScreen);
   }
 
-  function sharePdf() {
-    if (currentPdfUrl) window.open(currentPdfUrl, '_blank');
+  async function sharePdf() {
+    if (!currentPdfUrl) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Rechnung', url: currentPdfUrl });
+      } catch(e) { /* abgebrochen */ }
+    } else {
+      window.open(currentPdfUrl, '_blank');
+    }
   }
 
   // ── Navigation ──
@@ -961,9 +976,32 @@
           <div class="addr-name">${esc(a.name)}</div>
           <div class="addr-detail">${esc(a.strasse)}, ${esc(a.plz)} ${esc(a.ort)}</div>
         </div>
-        <button class="addr-edit-btn" onclick="editAddrByIdx(${i})">Bearbeiten</button>
+        <div class="addr-btns">
+          <button class="addr-edit-btn" onclick="editAddrByIdx(${i})">Bearbeiten</button>
+          <button class="addr-del-btn" onclick="deleteAddrByIdx(${i})">Löschen</button>
+        </div>
       </div>
     `).join('');
+  }
+
+  async function deleteAddrByIdx(idx) {
+    const a = addrData[idx];
+    if (!confirm(`Adresse „${a.name}" wirklich löschen?`)) return;
+    try {
+      const r = await fetch(`${API}/kargl/api/adressen/${a.row}/loeschen`, {
+        method: 'POST',
+        headers: {'Authorization': `Bearer ${token}`}
+      });
+      const d = await r.json();
+      if (r.ok) {
+        addrData.splice(idx, 1);
+        renderAdressen(addrData);
+      } else {
+        setErr('addr-err', d.error || 'Fehler beim Löschen');
+      }
+    } catch(e) {
+      setErr('addr-err', 'Verbindungsfehler');
+    }
   }
 
   function editAddrByIdx(idx) {
