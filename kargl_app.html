@@ -1039,8 +1039,13 @@
       return;
     }
     el.innerHTML = list.map((r, i) => {
-      const name = [r.vorname, r.nachname].filter(Boolean).join(' ') || r.nachname || '–';
+      const name   = [r.vorname, r.nachname].filter(Boolean).join(' ') || r.nachname || '–';
       const betrag = r.brutto ? eur(r.brutto) : '–';
+      const inEntwurf = r.status === 'entwurf';
+      const erlBtn = inEntwurf
+        ? `<button class="rg-btn" id="rg-v-${i}" style="color:#fff;background:#16a34a;border-color:#16a34a"
+               onclick="verschiebeRechnung('${esc(r.nr)}', ${i})">nach Erledigt verschieben</button>`
+        : `<button class="rg-btn" disabled style="opacity:0.45;cursor:default">&#10003; Erledigt</button>`;
       return `
         <div class="rg-card">
           <div class="rg-header">
@@ -1051,7 +1056,7 @@
           <div class="rg-brutto">${betrag}</div>
           <div class="rg-actions">
             <button class="rg-btn rg-btn-primary" onclick="openRechnungPdf('${esc(r.nr)}')">PDF öffnen</button>
-            <button class="rg-btn" id="rg-v-${i}" onclick="verschiebeRechnung('${esc(r.nr)}', ${i})">Erledigt</button>
+            ${erlBtn}
           </div>
         </div>
       `;

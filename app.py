@@ -1177,6 +1177,22 @@ def kargl_adressen_update(row):
 
 # ── Rechnungsordner-Endpoints ─────────────────────────────────────────────────
 
+def _list_folder_names(dbx: dropbox.Dropbox, path: str) -> set[str]:
+    """Listet alle Dateinamen in einem Dropbox-Ordner (flach)."""
+    names: set[str] = set()
+    try:
+        result = dbx.files_list_folder(path)
+        while True:
+            for e in result.entries:
+                names.add(e.name)
+            if not result.has_more:
+                break
+            result = dbx.files_list_folder_continue(result.cursor)
+    except Exception as e:
+        log(f"⚠️  Ordner auflisten {path}: {e}")
+    return names
+
+
 @app.route("/kargl/api/rechnungen", methods=["GET"])
 @require_token
 def kargl_rechnungen_list():
@@ -1194,28 +1210,51 @@ def kargl_rechnungen_list():
                     "nachname": str(row[3] or ""),
                     "vorname":  str(row[4] or ""),
                     "brutto":   float(row[8]) if row[8] else 0,
+                    "status":   "unknown",
                 })
         rechnungen.reverse()
-        return {"rechnungen": rechnungen[:60]}
+        rechnungen = rechnungen[:60]
+
+        # Datei-Status: einmal beide Ordner listen, dann abgleichen
+        entwurf_files  = _list_folder_names(dbx, INVOICE_OUTPUT_FOLDER)
+        erledigt_files = _list_folder_names(dbx, INVOICE_DONE_FOLDER)
+
+        def _get_status(nr: str) -> str:
+            for name in entwurf_files:
+                if nr in name and "rechnung" in name.lower() and \
+                        (name.lower().endswith(".odt") or name.lower().endswith(".docx")):
+                    return "entwurf"
+            for name in erledigt_files:
+                if nr in name and "rechnung" in name.lower() and \
+                        (name.lower().endswith(".odt") or name.lower().endswith(".docx")):
+                    return "erledigt"
+            return "not_found"
+
+        for r in rechnungen:
+            r["status"] = _get_status(r["nr"])
+
+        return {"rechnungen": rechnungen}
     except Exception as e:
         log(f"⚠️  Rechnungen lesen: {e}")
         return {"error": str(e)}, 500
 
 
 def _find_rechnung_odt(dbx: dropbox.Dropbox, nr: str) -> str | None:
-    """Sucht ODT/DOCX-Datei für Rechnungsnummer in Rechnungen_Entwurf."""
-    try:
-        result = dbx.files_list_folder(INVOICE_OUTPUT_FOLDER)
-        while True:
-            for entry in result.entries:
-                name = entry.name
-                if nr in name and (name.lower().endswith(".odt") or name.lower().endswith(".docx")):
-                    return entry.path_display
-            if not result.has_more:
-                break
-            result = dbx.files_list_folder_continue(result.cursor)
-    except Exception as e:
-        log(f"⚠️  ODT suchen: {e}")
+    """Sucht ODT/DOCX-Datei für Rechnungsnummer in Entwurf und Erledigt."""
+    for folder in [INVOICE_OUTPUT_FOLDER, INVOICE_DONE_FOLDER]:
+        try:
+            result = dbx.files_list_folder(folder)
+            while True:
+                for entry in result.entries:
+                    name = entry.name
+                    if (nr in name and "rechnung" in name.lower()
+                            and (name.lower().endswith(".odt") or name.lower().endswith(".docx"))):
+                        return entry.path_display
+                if not result.has_more:
+                    break
+                result = dbx.files_list_folder_continue(result.cursor)
+        except Exception as e:
+            log(f"⚠️  ODT suchen in {folder}: {e}")
     return None
 
 
