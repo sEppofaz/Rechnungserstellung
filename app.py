@@ -613,7 +613,7 @@ def save_to_invoice_register(dbx: dropbox.Dropbox, rechnungsnummer: str,
             parts    = name.strip().rsplit(" ", 1)
             nachname = parts[1] if len(parts) == 2 else name
             vorname  = parts[0] if len(parts) == 2 else ""
-        beschreibung = (data.get("beschreibungstext") or "")[:60]
+        beschreibung = (data.get("beschreibungstext") or "")[:500]
         ws.append([
             rechnungsnummer, datetime.now().strftime("%d.%m.%Y"),
             anrede, nachname, vorname, beschreibung,
@@ -1322,6 +1322,152 @@ def kargl_rechnung_verschieben(nr):
     except Exception as e:
         log(f"⚠️  Rechnung verschieben {nr}: {e}")
         return {"error": str(e)}, 500
+
+
+# ── Rechnung bearbeiten ───────────────────────────────────────────────────────
+
+@app.route("/kargl/api/rechnungen/<nr>/felder", methods=["GET"])
+@require_token
+def kargl_rechnung_felder(nr):
+    """Gibt bekannte Felder für eine Rechnungsnummer zurück (für Bearbeiten-Flow)."""
+    if not re.match(r'^[\w\-_]+$', nr):
+        abort(400)
+    dbx = get_dropbox_client()
+    try:
+        wb = _ensure_register_excel(dbx)
+        ws = wb.active
+        found = None
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if str(row[0] or '').strip() == nr:
+                found = row
+                break
+        if not found:
+            return {"error": "Rechnungsnummer nicht im Register gefunden"}, 404
+
+        anrede   = str(found[2] or 'Firma')
+        nachname = str(found[3] or '')
+        vorname  = str(found[4] or '')
+        name     = f"{vorname} {nachname}".strip() if vorname else nachname
+        beschr   = str(found[5] or '')
+        brutto   = float(found[8]) if found[8] else 0.0
+
+        adresse = find_in_address_excel(dbx, name) or {}
+
+        fields = {
+            "anrede":            anrede,
+            "name":              name,
+            "strasse_nr":        adresse.get("strasse_nr", ""),
+            "plz":               adresse.get("plz", ""),
+            "ort":               adresse.get("ort", ""),
+            "beschreibungstext": beschr,
+            "brutto_auf_zettel": brutto,
+            "positionen":        [],
+            "hinweis":           "",
+            "address_uncertain": False,
+        }
+        return {"fields": fields, "rechnungsnummer": nr}
+    except Exception as e:
+        log(f"⚠️  Felder lesen {nr}: {e}")
+        return {"error": str(e)}, 500
+
+
+def _update_invoice_register(dbx: dropbox.Dropbox, nr: str, data: dict, calc: dict) -> None:
+    try:
+        wb      = _ensure_register_excel(dbx)
+        ws      = wb.active
+        anrede  = data.get("anrede", "")
+        name    = data.get("name", "")
+        if anrede == "Firma":
+            nachname, vorname = name, ""
+        else:
+            parts    = name.strip().rsplit(" ", 1)
+            nachname = parts[1] if len(parts) == 2 else name
+            vorname  = parts[0] if len(parts) == 2 else ""
+        beschreibung = (data.get("beschreibungstext") or "")[:500]
+
+        for row in ws.iter_rows(min_row=2):
+            if str(row[0].value or '').strip() == nr:
+                row[1].value = datetime.now().strftime("%d.%m.%Y")
+                row[2].value = anrede
+                row[3].value = nachname
+                row[4].value = vorname
+                row[5].value = beschreibung
+                row[6].value = round(calc["netto"], 2)
+                row[7].value = round(calc["mwst"], 2)
+                row[8].value = round(calc["brutto"], 2)
+                _upload_excel(dbx, wb, INVOICE_REGISTER_FILE)
+                log(f"📊  Register aktualisiert: {nr}")
+                return
+        # Fallback: neuer Eintrag
+        save_to_invoice_register(dbx, nr, data, calc)
+    except Exception as e:
+        log(f"⚠️  Register aktualisieren {nr}: {e}")
+
+
+@app.route("/kargl/api/rechnungen/<nr>/neu-erstellen", methods=["POST"])
+@require_token
+def kargl_rechnung_neu_erstellen(nr):
+    """Überschreibt eine bestehende Entwurf-Rechnung mit aktualisierten Feldern."""
+    if not re.match(r'^[\w\-_]+$', nr):
+        abort(400)
+    body   = request.json or {}
+    fields = body.get("fields", {})
+    name   = fields.get("name", "")
+
+    dbx  = get_dropbox_client()
+    calc = calculate_and_validate(fields)
+
+    old_path = _find_rechnung_odt(dbx, nr)
+
+    tmp_docx = None
+    tmp_odt  = None
+    tmp_pdf  = None
+    try:
+        tmp_docx = build_docx(fields, calc, nr)
+        tmp_odt, out_ext = convert_to_odt(tmp_docx)
+
+        clean_name   = re.sub(r"[^\w\-]", "_", name or "Unbekannt")
+        datum_str    = datetime.now().strftime("%Y-%m-%d")
+        brutto_str   = f"{calc['brutto']:.2f}"
+        needs_prufen = fields.get("address_uncertain") or not calc["netto_ok"] or not calc["brutto_ok"]
+        nr_prefix    = f"_prüfen_{nr}" if needs_prufen else nr
+        out_name     = f"{nr_prefix}_Rechnung_{clean_name}_{datum_str}_{brutto_str}€{out_ext}"
+        out_path     = f"{INVOICE_OUTPUT_FOLDER}/{out_name}"
+
+        # Alte Datei entfernen wenn anderer Name
+        if old_path and old_path != out_path:
+            try:
+                dbx.files_delete_v2(old_path)
+                log(f"🗑  Alte Version gelöscht: {Path(old_path).name}")
+            except Exception as e:
+                log(f"⚠️  Alte Datei löschen: {e}")
+
+        with open(tmp_odt, "rb") as fh:
+            dbx.files_upload(fh.read(), out_path, mode=dropbox.files.WriteMode.overwrite, mute=True)
+        log(f"⬆️  Bearbeitet: {out_name}")
+
+        _update_invoice_register(dbx, nr, fields, calc)
+
+        # PDF für In-App-Viewer
+        pdf_session_id = None
+        tmp_pdf = convert_to_pdf(tmp_odt)
+        if tmp_pdf:
+            SESSIONS_DIR.mkdir(exist_ok=True)
+            edit_sid  = uuid_module.uuid4().hex
+            pdf_dest  = SESSIONS_DIR / f"{edit_sid}.pdf"
+            shutil.move(tmp_pdf, str(pdf_dest))
+            tmp_pdf        = None
+            pdf_session_id = edit_sid
+
+        return {"out_name": out_name, "rechnungsnummer": nr, "pdf_session_id": pdf_session_id}
+
+    except Exception as e:
+        log(f"❌  Neu-Erstellen {nr}: {e}")
+        return {"error": str(e)}, 500
+    finally:
+        if tmp_docx:                          Path(tmp_docx).unlink(missing_ok=True)
+        if tmp_odt and tmp_odt != tmp_docx:   Path(tmp_odt).unlink(missing_ok=True)
+        if tmp_pdf:                           Path(tmp_pdf).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

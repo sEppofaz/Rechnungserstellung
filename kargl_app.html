@@ -461,7 +461,7 @@
 
   <div class="form-actions">
     <button class="btn btn-primary" id="confirm-btn" onclick="confirmInvoice()">Rechnung erstellen</button>
-    <button class="btn btn-ghost" onclick="goMain()">Abbrechen</button>
+    <button class="btn btn-ghost" onclick="editNr ? (loadRechnungen(), _resetEditMode()) : goMain()">Abbrechen</button>
     <div id="form-err" class="err"></div>
   </div>
 </div>
@@ -476,7 +476,7 @@
     <button id="btn-pdf-open" class="btn btn-primary" onclick="openPdfFromSession()" style="display:none">
       Rechnung anzeigen / Drucken
     </button>
-    <button class="btn btn-ghost" onclick="goMain()">Neue Rechnung erstellen</button>
+    <button id="btn-back-from-done" class="btn btn-ghost" onclick="goMain()">Neue Rechnung erstellen</button>
     <button class="btn btn-ghost" onclick="loadAdressen()">Adressen bearbeiten</button>
     <button class="btn btn-danger" onclick="lockApp()">App beenden</button>
   </div>
@@ -562,10 +562,11 @@
   let imgUrl    = '';
   let posIdSeq  = 0;
   const posIds  = new Set();
-  let addrData       = [];
-  let pdfSessionId   = null;
+  let addrData        = [];
+  let pdfSessionId    = null;
   let pdfReturnScreen = 'success';
-  let currentPdfUrl  = '';
+  let currentPdfUrl   = '';
+  let editNr          = null;
 
   const ALL_SCREENS = ['login','main','loading','form','success','adressen','rechnungen','pdf'];
 
@@ -867,17 +868,24 @@
     }
     if (!fields.name) {
       setErr('form-err', 'Bitte Namen eingeben');
-      btn.disabled = false; btn.textContent = 'Rechnung erstellen';
+      btn.disabled = false; btn.textContent = editNr ? 'Rechnung aktualisieren' : 'Rechnung erstellen';
       return;
     }
 
-    const customNr = document.getElementById('f-rechnungsnummer').value.trim();
+    const customNr  = document.getElementById('f-rechnungsnummer').value.trim();
+    const isEdit    = !!editNr;
+    const endpoint  = isEdit
+      ? `${API}/kargl/api/rechnungen/${encodeURIComponent(editNr)}/neu-erstellen`
+      : `${API}/kargl/api/confirm`;
+    const body      = isEdit
+      ? JSON.stringify({fields})
+      : JSON.stringify({session_id: sessionId, fields, rechnungsnummer: customNr || undefined});
 
     try {
-      const r = await fetch(`${API}/kargl/api/confirm`, {
+      const r = await fetch(endpoint, {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
-        body: JSON.stringify({session_id: sessionId, fields, rechnungsnummer: customNr || undefined})
+        body
       });
       if (r.status === 401) { token = ''; localStorage.removeItem('kargl_token'); show('login'); return; }
       const d = await r.json();
@@ -891,6 +899,16 @@
       document.getElementById('ok-nr').textContent   = `Rechnungsnummer: ${d.rechnungsnummer}`;
       document.getElementById('ok-file').textContent = d.out_name;
       document.getElementById('btn-pdf-open').style.display = pdfSessionId ? 'block' : 'none';
+      // Im Edit-Modus: "Neue Rechnung" → zurück zu Rechnungsordner
+      const backBtn = document.getElementById('btn-back-from-done');
+      if (isEdit) {
+        backBtn.textContent = 'Zurück zu Rechnungsordner';
+        backBtn.onclick = () => { _resetEditMode(); loadRechnungen(); };
+      } else {
+        backBtn.textContent = 'Neue Rechnung erstellen';
+        backBtn.onclick = goMain;
+      }
+      _resetEditMode();
       show('success');
     } catch(e) {
       setErr('form-err', 'Verbindungsfehler: ' + e.message);
@@ -953,7 +971,15 @@
     document.getElementById('file-inp').value = '';
     if (imgUrl) { URL.revokeObjectURL(imgUrl); imgUrl = ''; }
     pdfSessionId = null;
+    _resetEditMode();
     show('main');
+  }
+
+  function _resetEditMode() {
+    editNr = null;
+    const nr = document.getElementById('f-rechnungsnummer');
+    nr.readOnly = false; nr.style.opacity = '1';
+    document.getElementById('confirm-btn').textContent = 'Rechnung erstellen';
   }
 
   function setErr(id, msg) {
@@ -1093,6 +1119,32 @@
     }
   }
 
+  async function bearbeiteRechnung(nr) {
+    show('loading');
+    document.getElementById('loading-txt').textContent = 'Rechnungsdaten werden geladen…';
+    try {
+      const r = await fetch(`${API}/kargl/api/rechnungen/${encodeURIComponent(nr)}/felder`, {
+        headers: {'Authorization': `Bearer ${token}`}
+      });
+      if (r.status === 401) { token = ''; localStorage.removeItem('kargl_token'); show('login'); return; }
+      const d = await r.json();
+      if (!r.ok) { show('rechnungen'); setErr('rg-err', d.error || 'Fehler'); return; }
+
+      editNr = nr;
+      fillForm(d.fields);
+      const nrField = document.getElementById('f-rechnungsnummer');
+      nrField.value    = d.rechnungsnummer;
+      nrField.readOnly = true;
+      nrField.style.opacity = '0.6';
+      document.getElementById('confirm-btn').textContent = 'Rechnung aktualisieren';
+      document.getElementById('form-sub').textContent = 'Felder prüfen und bearbeiten';
+      show('form');
+    } catch(e) {
+      show('rechnungen');
+      setErr('rg-err', 'Verbindungsfehler: ' + e.message);
+    }
+  }
+
   function renderRechnungen(list) {
     const el = document.getElementById('rg-list');
     if (!list.length) {
@@ -1107,6 +1159,10 @@
         ? `<button class="rg-btn" id="rg-v-${i}" style="color:#fff;background:#16a34a;border-color:#16a34a"
                onclick="verschiebeRechnung('${esc(r.nr)}', ${i})">nach Erledigt verschieben</button>`
         : `<button class="rg-btn" disabled style="opacity:0.45;cursor:default">&#10003; Erledigt</button>`;
+      const bearbBtn = inEntwurf
+        ? `<button class="rg-btn" style="width:100%;margin-top:6px"
+               onclick="bearbeiteRechnung('${esc(r.nr)}')">Bearbeiten</button>`
+        : '';
       return `
         <div class="rg-card">
           <div class="rg-header">
@@ -1119,6 +1175,7 @@
             <button class="rg-btn rg-btn-primary" onclick="openRechnungPdf('${esc(r.nr)}')">PDF öffnen</button>
             ${erlBtn}
           </div>
+          ${bearbBtn}
         </div>
       `;
     }).join('');
