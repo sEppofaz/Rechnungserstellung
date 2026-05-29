@@ -95,6 +95,20 @@ def require_token(f):
     return decorated
 
 
+def require_token_or_param(f):
+    """Wie require_token, akzeptiert aber auch ?token= Query-Parameter (für iframe/neuen Tab)."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if KARGL_APP_TOKEN:
+            auth      = request.headers.get("Authorization", "")
+            header_ok = auth.startswith("Bearer ") and auth[7:] == KARGL_APP_TOKEN
+            param_ok  = request.args.get("token") == KARGL_APP_TOKEN
+            if not header_ok and not param_ok:
+                return {"error": "Unauthorized"}, 401
+        return f(*args, **kwargs)
+    return decorated
+
+
 # ── ODT-Konvertierung ─────────────────────────────────────────────────────────
 
 def convert_to_odt(docx_path: str) -> tuple[str, str]:
@@ -124,6 +138,32 @@ def convert_to_odt(docx_path: str) -> tuple[str, str]:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+# ── PDF-Konvertierung ─────────────────────────────────────────────────────────
+
+def convert_to_pdf(src_path: str) -> str | None:
+    """Konvertiert DOCX/ODT → PDF via LibreOffice. Gibt Pfad zurück oder None bei Fehler."""
+    lo = shutil.which("libreoffice") or shutil.which("soffice")
+    if not lo:
+        return None
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        subprocess.run(
+            [lo, "--headless", "--convert-to", "pdf", "--outdir", tmp_dir, src_path],
+            check=True, timeout=60, capture_output=True,
+        )
+        pdf_src = Path(tmp_dir) / (Path(src_path).stem + ".pdf")
+        if not pdf_src.exists():
+            return None
+        final = tempfile.mktemp(suffix=".pdf")
+        shutil.move(str(pdf_src), final)
+        return final
+    except Exception as e:
+        log(f"⚠️  PDF-Konvertierung: {e}")
+        return None
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 # ── Session-Management (App-OCR) ──────────────────────────────────────────────
 
 def _cleanup_old_sessions() -> None:
@@ -142,11 +182,22 @@ def _cleanup_old_sessions() -> None:
 
 def _ensure_kargl_icons() -> None:
     KARGL_ICONS_DIR.mkdir(exist_ok=True)
+    version_file = KARGL_ICONS_DIR / ".version"
+    current_ok = (
+        version_file.exists()
+        and version_file.read_text().strip() == _ICON_VERSION
+        and all((KARGL_ICONS_DIR / f"icon-{s}.png").exists() for s in (192, 512, 180))
+    )
+    if current_ok:
+        return
     for size in (192, 512, 180):
         p = KARGL_ICONS_DIR / f"icon-{size}.png"
-        if not p.exists():
-            _generate_kargl_icon(size, p)
+        p.unlink(missing_ok=True)
+        _generate_kargl_icon(size, p)
+    version_file.write_text(_ICON_VERSION)
 
+
+_ICON_VERSION = "receipt-v1"
 
 _KARGL_ICON_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="-6 -6 36 36">
   <rect x="-6" y="-6" width="36" height="36" fill="#92400e"/>
@@ -884,9 +935,9 @@ def kargl_manifest():
         "background_color": "#1c1c1e",
         "theme_color": "#92400e",
         "icons": [
-            {"src": "/kargl/icon-192.png?v=2", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-            {"src": "/kargl/icon-512.png?v=2", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-            {"src": "/kargl/icon-180.png?v=2", "sizes": "180x180", "type": "image/png"},
+            {"src": "/kargl/icon-192.png?v=3", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/kargl/icon-512.png?v=3", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/kargl/icon-180.png?v=3", "sizes": "180x180", "type": "image/png"},
         ],
     }
 
@@ -894,8 +945,8 @@ def kargl_manifest():
 @app.route("/kargl/sw.js")
 def kargl_sw():
     sw = (
-        "const CACHE='kargl-v3';\n"
-        "const SHELL=['/kargl/','/kargl/manifest.json','/kargl/icon-192.png?v=2','/kargl/icon-512.png?v=2','/kargl/icon-180.png?v=2'];\n"
+        "const CACHE='kargl-v4';\n"
+        "const SHELL=['/kargl/','/kargl/manifest.json','/kargl/icon-192.png?v=3','/kargl/icon-512.png?v=3','/kargl/icon-180.png?v=3'];\n"
         "self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting();});\n"
         "self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});\n"
         "self.addEventListener('fetch',e=>{\n"
@@ -970,7 +1021,8 @@ def kargl_ocr():
         meta = {"original_suffix": suffix, "created_at": datetime.now().isoformat()}
         (SESSIONS_DIR / f"{session_id}.json").write_text(json.dumps(meta, ensure_ascii=False))
 
-        return {"session_id": session_id, "fields": invoice_data}
+        next_nr = get_next_invoice_number(dbx)
+        return {"session_id": session_id, "fields": invoice_data, "next_rechnungsnummer": next_nr}
 
     except Exception as e:
         img_path.unlink(missing_ok=True)
@@ -984,6 +1036,7 @@ def kargl_confirm():
     body       = request.json or {}
     session_id = body.get("session_id", "")
     fields     = body.get("fields", {})
+    custom_nr  = (body.get("rechnungsnummer") or "").strip()
 
     if not session_id:
         return {"error": "Keine Session"}, 400
@@ -1000,10 +1053,11 @@ def kargl_confirm():
     calc = calculate_and_validate(fields)
     name = fields.get("name", "")
 
-    rechnungsnummer = get_next_invoice_number(dbx)
+    rechnungsnummer = custom_nr if custom_nr else get_next_invoice_number(dbx)
 
     tmp_docx = None
     tmp_odt  = None
+    tmp_pdf  = None
     try:
         tmp_docx = build_docx(fields, calc, rechnungsnummer)
         tmp_odt, out_ext = convert_to_odt(tmp_docx)
@@ -1034,18 +1088,185 @@ def kargl_confirm():
                 dbx.files_upload(fh.read(), done_path, mode=dropbox.files.WriteMode.overwrite, mute=True)
             log(f"📁  App: Original archiviert: {done_path}")
 
+        # PDF für In-App-Viewer generieren
+        pdf_session_id = None
+        tmp_pdf = convert_to_pdf(tmp_odt)
+        if tmp_pdf:
+            pdf_dest = SESSIONS_DIR / f"{session_id}.pdf"
+            shutil.move(tmp_pdf, str(pdf_dest))
+            tmp_pdf = None  # bereits verschoben
+            pdf_session_id = session_id
+            log(f"📄  PDF erstellt: {pdf_dest.name}")
+
         session_file.unlink(missing_ok=True)
         img_path.unlink(missing_ok=True)
 
         log(f"✅  App: Rechnung erstellt: {out_name}")
-        return {"out_name": out_name, "rechnungsnummer": rechnungsnummer}
+        return {"out_name": out_name, "rechnungsnummer": rechnungsnummer,
+                "pdf_session_id": pdf_session_id}
 
     except Exception as e:
         log(f"❌  App Confirm Fehler: {e}")
         return {"error": str(e)}, 500
     finally:
-        if tmp_docx:                      Path(tmp_docx).unlink(missing_ok=True)
-        if tmp_odt and tmp_odt != tmp_docx: Path(tmp_odt).unlink(missing_ok=True)
+        if tmp_docx:                          Path(tmp_docx).unlink(missing_ok=True)
+        if tmp_odt and tmp_odt != tmp_docx:   Path(tmp_odt).unlink(missing_ok=True)
+        if tmp_pdf:                           Path(tmp_pdf).unlink(missing_ok=True)
+
+
+# ── PDF-Session-Endpoint ──────────────────────────────────────────────────────
+
+@app.route("/kargl/api/sessions/<sid>/pdf", methods=["GET"])
+@require_token_or_param
+def kargl_session_pdf(sid):
+    if not re.match(r'^[a-f0-9]{32}$', sid):
+        abort(400)
+    pdf_path = SESSIONS_DIR / f"{sid}.pdf"
+    if not pdf_path.exists():
+        return {"error": "PDF nicht gefunden oder abgelaufen"}, 404
+    pdf_data = pdf_path.read_bytes()
+    return Response(pdf_data, mimetype="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="rechnung.pdf"',
+                             "Cache-Control": "no-store"})
+
+
+# ── Adressen-Endpoints ────────────────────────────────────────────────────────
+
+@app.route("/kargl/api/adressen", methods=["GET"])
+@require_token
+def kargl_adressen_list():
+    dbx = get_dropbox_client()
+    try:
+        wb = _ensure_address_excel(dbx)
+        ws = wb.active
+        adressen = []
+        for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if any(cell is not None and str(cell).strip() for cell in row[:4]):
+                adressen.append({
+                    "row": i,
+                    "name":    str(row[0] or "").strip(),
+                    "strasse": str(row[1] or "").strip(),
+                    "plz":     str(row[2] or "").strip(),
+                    "ort":     str(row[3] or "").strip(),
+                })
+        return {"adressen": adressen}
+    except Exception as e:
+        log(f"⚠️  Adressen lesen: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.route("/kargl/api/adressen/<int:row>", methods=["POST"])
+@require_token
+def kargl_adressen_update(row):
+    body = request.json or {}
+    dbx  = get_dropbox_client()
+    try:
+        wb = _ensure_address_excel(dbx)
+        ws = wb.active
+        ws.cell(row=row, column=1).value = body.get("name", "")
+        ws.cell(row=row, column=2).value = body.get("strasse", "")
+        ws.cell(row=row, column=3).value = body.get("plz", "")
+        ws.cell(row=row, column=4).value = body.get("ort", "")
+        _upload_excel(dbx, wb, INVOICE_ADDRESS_FILE)
+        log(f"📋  Adresse aktualisiert: Zeile {row}")
+        return {"ok": True}
+    except Exception as e:
+        log(f"⚠️  Adresse aktualisieren: {e}")
+        return {"error": str(e)}, 500
+
+
+# ── Rechnungsordner-Endpoints ─────────────────────────────────────────────────
+
+@app.route("/kargl/api/rechnungen", methods=["GET"])
+@require_token
+def kargl_rechnungen_list():
+    dbx = get_dropbox_client()
+    try:
+        wb = _ensure_register_excel(dbx)
+        ws = wb.active
+        rechnungen = []
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if row[0]:
+                rechnungen.append({
+                    "nr":       str(row[0] or ""),
+                    "datum":    str(row[1] or ""),
+                    "anrede":   str(row[2] or ""),
+                    "nachname": str(row[3] or ""),
+                    "vorname":  str(row[4] or ""),
+                    "brutto":   float(row[8]) if row[8] else 0,
+                })
+        rechnungen.reverse()
+        return {"rechnungen": rechnungen[:60]}
+    except Exception as e:
+        log(f"⚠️  Rechnungen lesen: {e}")
+        return {"error": str(e)}, 500
+
+
+def _find_rechnung_odt(dbx: dropbox.Dropbox, nr: str) -> str | None:
+    """Sucht ODT/DOCX-Datei für Rechnungsnummer in Rechnungen_Entwurf."""
+    try:
+        result = dbx.files_list_folder(INVOICE_OUTPUT_FOLDER)
+        while True:
+            for entry in result.entries:
+                name = entry.name
+                if nr in name and (name.lower().endswith(".odt") or name.lower().endswith(".docx")):
+                    return entry.path_display
+            if not result.has_more:
+                break
+            result = dbx.files_list_folder_continue(result.cursor)
+    except Exception as e:
+        log(f"⚠️  ODT suchen: {e}")
+    return None
+
+
+@app.route("/kargl/api/rechnungen/<nr>/pdf", methods=["GET"])
+@require_token_or_param
+def kargl_rechnung_pdf(nr):
+    if not re.match(r'^[\w\-_]+$', nr):
+        abort(400)
+    dbx      = get_dropbox_client()
+    odt_path = _find_rechnung_odt(dbx, nr)
+    if not odt_path:
+        return {"error": "Rechnung nicht in Entwurf-Ordner gefunden"}, 404
+
+    tmp_odt = None
+    tmp_pdf = None
+    try:
+        tmp_odt = tempfile.mktemp(suffix=".odt")
+        dbx.files_download_to_file(tmp_odt, odt_path)
+        tmp_pdf = convert_to_pdf(tmp_odt)
+        if not tmp_pdf:
+            return {"error": "PDF-Konvertierung fehlgeschlagen"}, 500
+        pdf_data = Path(tmp_pdf).read_bytes()
+        return Response(pdf_data, mimetype="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{nr}_Rechnung.pdf"',
+                                 "Cache-Control": "no-store"})
+    except Exception as e:
+        log(f"⚠️  Rechnung PDF {nr}: {e}")
+        return {"error": str(e)}, 500
+    finally:
+        if tmp_odt: Path(tmp_odt).unlink(missing_ok=True)
+        if tmp_pdf: Path(tmp_pdf).unlink(missing_ok=True)
+
+
+@app.route("/kargl/api/rechnungen/<nr>/verschieben", methods=["POST"])
+@require_token
+def kargl_rechnung_verschieben(nr):
+    if not re.match(r'^[\w\-_]+$', nr):
+        abort(400)
+    dbx      = get_dropbox_client()
+    odt_path = _find_rechnung_odt(dbx, nr)
+    if not odt_path:
+        return {"error": "Rechnung nicht in Entwurf-Ordner gefunden"}, 404
+    try:
+        filename = Path(odt_path).name
+        new_path = f"{INVOICE_DONE_FOLDER}/{filename}"
+        dbx.files_move_v2(odt_path, new_path, autorename=True)
+        log(f"📁  Rechnung verschoben → Erledigt: {filename}")
+        return {"ok": True}
+    except Exception as e:
+        log(f"⚠️  Rechnung verschieben {nr}: {e}")
+        return {"error": str(e)}, 500
 
 
 if __name__ == "__main__":

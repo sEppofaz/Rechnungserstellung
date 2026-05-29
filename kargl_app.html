@@ -9,7 +9,7 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)"  content="#92400e">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fef3c7">
   <link rel="manifest" href="/kargl/manifest.json">
-  <link rel="apple-touch-icon" href="/kargl/icon-180.png?v=2">
+  <link rel="apple-touch-icon" href="/kargl/icon-180.png?v=3">
   <title>Kargl Rechnung</title>
   <style>
     :root {
@@ -64,6 +64,7 @@
     .btn:disabled { opacity: 0.45; cursor: default; }
     .btn-primary  { background: var(--primary); color: #fff; }
     .btn-ghost    { background: var(--bg2); color: var(--text); border: 1.5px solid var(--bg3); }
+    .btn-danger   { background: var(--bg2); color: var(--danger); border: 1.5px solid var(--bg3); }
     .err { color: var(--danger); font-size: 14px; text-align: center; min-height: 20px; }
 
     /* ── LOGIN ── */
@@ -72,9 +73,10 @@
     .app-name  { font-size: 28px; font-weight: 700; text-align: center; }
     .app-sub   { font-size: 14px; color: var(--text2); text-align: center; margin-top: 4px; }
     .login-box { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 12px; }
+    .login-or  { text-align: center; font-size: 13px; color: var(--text2); }
 
     /* ── MAIN ── */
-    #s-main { align-items: center; justify-content: center; gap: 24px; }
+    #s-main { align-items: center; justify-content: center; gap: 20px; }
     .scan-card {
       width: 100%; background: var(--primary); border-radius: 28px;
       padding: 52px 24px; text-align: center; cursor: pointer;
@@ -84,6 +86,14 @@
     .scan-card-icon  { font-size: 64px; margin-bottom: 14px; }
     .scan-card-label { font-size: 22px; font-weight: 700; color: #fff; }
     .scan-card-sub   { font-size: 14px; color: rgba(255,255,255,0.78); margin-top: 6px; }
+    .main-row { display: flex; gap: 10px; width: 100%; }
+    .main-tile {
+      flex: 1; background: var(--bg2); border: 1.5px solid var(--bg3);
+      border-radius: 16px; padding: 18px 10px; font-size: 15px; font-weight: 600;
+      cursor: pointer; font-family: inherit; color: var(--text); text-align: center;
+    }
+    .main-tile:active { opacity: 0.7; }
+    .main-tile-icon { font-size: 28px; margin-bottom: 6px; display: block; }
 
     /* ── LOADING ── */
     #s-loading { align-items: center; justify-content: center; gap: 24px; text-align: center; }
@@ -118,7 +128,6 @@
       margin-bottom: 8px; margin-top: 20px; display: block;
     }
     .row2 { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
-    /* Positionen */
     .pos-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
     .pos-card { background: var(--bg2); border-radius: 12px; padding: 12px; }
     .pos-head  {
@@ -133,7 +142,6 @@
       background: none; color: var(--text2); font-size: 15px; cursor: pointer; font-family: inherit;
     }
     .add-pos-btn:active { opacity: 0.6; }
-    /* Calc */
     .calc-card { background: var(--bg2); border-radius: 14px; overflow: hidden; }
     .calc-row  {
       display: flex; justify-content: space-between; align-items: center;
@@ -145,11 +153,10 @@
     .calc-total { font-size: 20px; font-weight: 700; color: var(--primary); }
     .calc-inp  { width: 130px; text-align: right; padding: 8px 12px; border-radius: 10px; }
     .pauschal-hint { font-size: 13px; color: var(--text2); margin-top: 8px; }
-    /* Actions */
     .form-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 28px; }
 
-    /* ── SUCCESS ── */
-    #s-success { align-items: center; justify-content: center; gap: 20px; text-align: center; }
+    /* ── SUCCESS / DONE ── */
+    #s-success { align-items: center; justify-content: center; gap: 16px; text-align: center; }
     .ok-icon   { font-size: 76px; }
     .ok-title  { font-size: 26px; font-weight: 700; }
     .ok-nr     { font-size: 15px; color: var(--text2); }
@@ -158,7 +165,99 @@
       background: var(--bg2); padding: 14px 16px; border-radius: 12px; line-height: 1.6;
       max-width: 340px;
     }
-    .ok-sub    { font-size: 14px; color: var(--text2); line-height: 1.5; }
+    .done-actions { width: 100%; display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+
+    /* ── NAVIGATION BAR (für Sub-Screens) ── */
+    .nav-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: calc(var(--safe-t) + 12px) 0 14px;
+      border-bottom: 1px solid var(--bg3); margin-bottom: 16px; flex-shrink: 0;
+    }
+    .nav-title { font-size: 17px; font-weight: 700; flex: 1; text-align: center; }
+    .nav-back {
+      background: none; border: none; color: var(--primary); font-size: 16px;
+      font-weight: 600; cursor: pointer; font-family: inherit; padding: 4px 0;
+      min-width: 60px; text-align: left;
+    }
+    .nav-back:active { opacity: 0.6; }
+    .nav-spacer { min-width: 60px; }
+
+    /* ── ADRESSEN ── */
+    #s-adressen { padding-top: calc(var(--safe-t) + 4px); }
+    .addr-card {
+      background: var(--bg2); border-radius: 14px; padding: 14px 16px;
+      margin-bottom: 10px; display: flex; align-items: center; gap: 12px;
+    }
+    .addr-info { flex: 1; min-width: 0; }
+    .addr-name { font-size: 15px; font-weight: 600; margin-bottom: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .addr-detail { font-size: 13px; color: var(--text2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .addr-edit-btn {
+      background: var(--bg3); border: none; color: var(--text);
+      border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 600;
+      cursor: pointer; font-family: inherit; flex-shrink: 0;
+    }
+    .addr-edit-btn:active { opacity: 0.7; }
+    .list-empty { text-align: center; color: var(--text2); padding: 40px 0; font-size: 15px; }
+
+    /* ── RECHNUNGEN ── */
+    #s-rechnungen { padding-top: calc(var(--safe-t) + 4px); }
+    .rg-card {
+      background: var(--bg2); border-radius: 14px; padding: 14px 16px;
+      margin-bottom: 10px;
+    }
+    .rg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .rg-nr     { font-size: 13px; font-weight: 700; color: var(--primary); }
+    .rg-datum  { font-size: 12px; color: var(--text2); }
+    .rg-name   { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .rg-brutto { font-size: 14px; color: var(--text2); margin-bottom: 12px; }
+    .rg-actions { display: flex; gap: 8px; }
+    .rg-btn {
+      flex: 1; padding: 10px 6px; border-radius: 10px; border: 1.5px solid var(--bg3);
+      background: var(--bg3); color: var(--text); font-size: 13px; font-weight: 600;
+      cursor: pointer; font-family: inherit; text-align: center;
+    }
+    .rg-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .rg-btn:active { opacity: 0.7; }
+    .rg-btn:disabled { opacity: 0.45; cursor: default; }
+
+    /* ── PDF-VIEWER ── */
+    #s-pdf {
+      padding: 0; min-height: 100svh; display: flex; flex-direction: column;
+    }
+    #s-pdf.hidden { display: none !important; }
+    .pdf-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: calc(var(--safe-t) + 12px) 16px 12px;
+      background: var(--bg); border-bottom: 1px solid var(--bg3);
+      flex-shrink: 0;
+    }
+    .pdf-bar-title { font-size: 17px; font-weight: 700; }
+    .pdf-share-btn {
+      background: none; border: none; color: var(--primary); font-size: 16px;
+      font-weight: 600; cursor: pointer; font-family: inherit; padding: 4px 0;
+      min-width: 60px; text-align: right;
+    }
+    #pdf-frame { flex: 1; width: 100%; border: none; background: #fff; }
+
+    /* ── MODAL (Adresse bearbeiten) ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; z-index: 300;
+      background: rgba(0,0,0,0.5); align-items: flex-end;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal-sheet {
+      background: var(--bg2); border-radius: 20px 20px 0 0; width: 100%;
+      padding: 20px 16px calc(20px + var(--safe-b));
+      display: flex; flex-direction: column; gap: 12px;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+    }
+    .modal-title { font-size: 17px; font-weight: 700; }
+    .modal-label { font-size: 12px; font-weight: 600; color: var(--text2);
+      text-transform: uppercase; letter-spacing: 0.05em; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 4px; }
+    .modal-actions .btn { font-size: 15px; padding: 13px; }
 
     /* ── PULL-TO-REFRESH ── */
     #ptr {
@@ -202,8 +301,6 @@
     }
     #info-body h3 { color: var(--text); font-size: 14px; margin: 14px 0 4px; }
     #info-body p  { margin-bottom: 8px; }
-
-    /* Info-Button auf Hauptscreen */
     #btn-info {
       background: rgba(255,255,255,.15); border: none; color: #fff;
       height: 34px; padding: 0 12px; border-radius: 9px;
@@ -212,8 +309,15 @@
     }
     #btn-info:active { background: rgba(255,255,255,.3); }
 
-    /* Scroll-to-Top */
-    .back-top { position: fixed; bottom: calc(24px + var(--safe-b)); right: 16px; width: 40px; height: 40px; border-radius: 50%; background: var(--primary); color: #fff; border: none; font-size: 20px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.25); display: none; align-items: center; justify-content: center; z-index: 200; transition: opacity .2s; }
+    /* ── SCROLL-TO-TOP ── */
+    .back-top {
+      position: fixed; bottom: calc(24px + var(--safe-b)); right: 16px;
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--primary); color: #fff; border: none; font-size: 20px;
+      cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.25);
+      display: none; align-items: center; justify-content: center;
+      z-index: 200; transition: opacity .2s;
+    }
     .back-top.vis { display: flex; }
     .back-top:active { opacity: .7; }
   </style>
@@ -221,14 +325,18 @@
 <body>
 <div id="ptr"><div id="ptr-spin"></div> Aktualisiere…</div>
 
-<!-- LOGIN -->
-<div id="s-login" class="screen">
+<!-- ── LOGIN ── -->
+<div id="s-login" class="screen hidden">
   <div class="app-icon">🧾</div>
   <div>
     <div class="app-name">Kargl Rechnung</div>
     <div class="app-sub">Josef Kargl · Holzimprägnierwerk · Traich 2</div>
   </div>
   <div class="login-box">
+    <button id="face-id-btn" class="btn btn-primary" onclick="unlockWithFaceID()" style="display:none">
+      Mit Face-ID entsperren
+    </button>
+    <div id="login-or" class="login-or" style="display:none">oder</div>
     <input type="password" id="inp-token" placeholder="Zugangscode" autocomplete="current-password"
            onkeydown="if(event.key==='Enter') login()">
     <div id="login-err" class="err"></div>
@@ -236,7 +344,7 @@
   </div>
 </div>
 
-<!-- MAIN -->
+<!-- ── MAIN ── -->
 <div id="s-main" class="screen hidden">
   <div class="scan-card" onclick="document.getElementById('file-inp').click()">
     <div class="scan-card-icon">📸</div>
@@ -245,15 +353,23 @@
   </div>
   <input type="file" id="file-inp" accept="image/*,.pdf" capture="environment"
          style="display:none" onchange="handleFile(this)">
+  <div class="main-row">
+    <button class="main-tile" onclick="loadAdressen()">
+      <span class="main-tile-icon">📋</span>Adressen
+    </button>
+    <button class="main-tile" onclick="loadRechnungen()">
+      <span class="main-tile-icon">📁</span>Rechnungsordner
+    </button>
+  </div>
   <div id="main-err" class="err"></div>
   <button id="btn-info" onclick="document.getElementById('info-overlay').classList.add('show')" aria-label="Info">Info</button>
 </div>
 
-<!-- INFO-OVERLAY -->
+<!-- ── INFO-OVERLAY ── -->
 <div id="info-overlay" onclick="if(event.target===this)this.classList.remove('show')">
   <div id="info-sheet">
     <div id="info-hd">
-      <strong>ℹ️ Kargl Rechnung</strong>
+      <strong>Kargl Rechnung</strong>
       <button id="btn-info-close" onclick="document.getElementById('info-overlay').classList.remove('show')">Schließen</button>
     </div>
     <div id="info-body">
@@ -262,21 +378,21 @@
       <h3>Zugangscode</h3>
       <p>Einmalig beim ersten Start eingeben. Der Code wird gespeichert – danach kein erneutes Einloggen nötig.</p>
       <h3>Ausgabe</h3>
-      <p>Fertige Rechnung liegt in Dropbox unter <em>Rechnungen_Entwurf/</em> als .odt-Datei (LibreOffice/Word kompatibel).</p>
+      <p>Fertige Rechnung liegt in Dropbox unter <em>Rechnungen_Entwurf/</em> als .odt-Datei.</p>
       <h3>Adressdatenbank</h3>
-      <p>Neue Kunden werden automatisch in <em>_Adressen.xlsx</em> gespeichert. Beim nächsten Auftrag desselben Kunden wird die Adresse direkt übernommen.</p>
+      <p>Neue Kunden werden automatisch in <em>_Adressen.xlsx</em> gespeichert.</p>
     </div>
   </div>
 </div>
 
-<!-- LOADING -->
+<!-- ── LOADING ── -->
 <div id="s-loading" class="screen hidden">
   <div class="spinner"></div>
   <div class="loading-label" id="loading-txt">Zettel wird ausgelesen…</div>
   <div style="font-size:13px;color:var(--text2)">Claude analysiert den handgeschriebenen Zettel</div>
 </div>
 
-<!-- FORM -->
+<!-- ── FORM ── -->
 <div id="s-form" class="screen hidden">
   <div class="form-bar">
     <img id="img-thumb" class="img-thumb" src="" alt="">
@@ -290,6 +406,9 @@
     <span>⚠️</span>
     <span>Adresse oder Beträge unsicher – bitte besonders genau prüfen.</span>
   </div>
+
+  <label class="sec-label">Rechnungsnummer</label>
+  <input type="text" id="f-rechnungsnummer" placeholder="wird automatisch vergeben" style="margin-bottom:8px">
 
   <label class="sec-label">Empfänger</label>
   <select id="f-anrede" style="margin-bottom:8px">
@@ -345,37 +464,139 @@
   </div>
 </div>
 
-<!-- SUCCESS -->
+<!-- ── SUCCESS / DONE ── -->
 <div id="s-success" class="screen hidden">
-  <div class="ok-icon">✅</div>
+  <div class="ok-icon">🧾</div>
   <div class="ok-title">Rechnung erstellt!</div>
   <div class="ok-nr" id="ok-nr"></div>
   <div class="ok-file" id="ok-file"></div>
-  <div class="ok-sub">Datei liegt in Dropbox<br><em>Rechnungen_Entwurf/</em></div>
-  <button class="btn btn-primary" onclick="goMain()" style="width:auto;padding:15px 48px">
-    Neue Rechnung
-  </button>
+  <div class="done-actions">
+    <button id="btn-pdf-open" class="btn btn-primary" onclick="openPdfFromSession()" style="display:none">
+      Rechnung anzeigen / Drucken
+    </button>
+    <button class="btn btn-ghost" onclick="goMain()">Neue Rechnung erstellen</button>
+    <button class="btn btn-ghost" onclick="loadAdressen()">Adressen bearbeiten</button>
+    <button class="btn btn-danger" onclick="lockApp()">App beenden</button>
+  </div>
 </div>
+
+<!-- ── ADRESSEN ── -->
+<div id="s-adressen" class="screen hidden">
+  <div class="nav-bar">
+    <button class="nav-back" onclick="goMain()">&#8592; Zurück</button>
+    <span class="nav-title">Adressen</span>
+    <span class="nav-spacer"></span>
+  </div>
+  <div id="addr-list"></div>
+  <div id="addr-err" class="err"></div>
+</div>
+
+<!-- ── RECHNUNGSORDNER ── -->
+<div id="s-rechnungen" class="screen hidden">
+  <div class="nav-bar">
+    <button class="nav-back" onclick="goMain()">&#8592; Zurück</button>
+    <span class="nav-title">Rechnungsordner</span>
+    <span class="nav-spacer"></span>
+  </div>
+  <div id="rg-list"></div>
+  <div id="rg-err" class="err"></div>
+</div>
+
+<!-- ── PDF-VIEWER ── -->
+<div id="s-pdf" class="hidden">
+  <div class="pdf-bar">
+    <button class="nav-back" onclick="closePdf()">&#8592; Zurück</button>
+    <span class="pdf-bar-title">Rechnung</span>
+    <button class="pdf-share-btn" id="pdf-share-btn" onclick="sharePdf()">Teilen</button>
+  </div>
+  <iframe id="pdf-frame" src=""></iframe>
+</div>
+
+<!-- ── ADRESSE BEARBEITEN (Modal) ── -->
+<div id="addr-modal" class="modal-overlay" onclick="if(event.target===this)closeAddrModal()">
+  <div class="modal-sheet">
+    <div class="modal-title">Adresse bearbeiten</div>
+    <input type="hidden" id="ae-row">
+    <div>
+      <div class="modal-label" style="margin-bottom:6px">Name</div>
+      <input type="text" id="ae-name" placeholder="Name / Firma">
+    </div>
+    <div>
+      <div class="modal-label" style="margin-bottom:6px">Straße + Nr.</div>
+      <input type="text" id="ae-strasse" placeholder="Straße und Hausnummer">
+    </div>
+    <div class="row2">
+      <div>
+        <div class="modal-label" style="margin-bottom:6px">PLZ</div>
+        <input type="text" id="ae-plz" placeholder="PLZ">
+      </div>
+      <div>
+        <div class="modal-label" style="margin-bottom:6px">Ort</div>
+        <input type="text" id="ae-ort" placeholder="Ort">
+      </div>
+    </div>
+    <div id="ae-err" class="err"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeAddrModal()" style="flex:1">Abbrechen</button>
+      <button class="btn btn-primary" id="ae-save-btn" onclick="saveAddr()" style="flex:2">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<button class="back-top" id="back-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">&#8679;</button>
 
 <script>
   const API = '';
+  const RP_ID = 'umbenennen.duckdns.org';
+
   let token     = localStorage.getItem('kargl_token') || '';
   let sessionId = '';
   let imgUrl    = '';
   let posIdSeq  = 0;
   const posIds  = new Set();
+  let addrData       = [];
+  let pdfSessionId   = null;
+  let pdfReturnScreen = 'success';
+  let currentPdfUrl  = '';
+
+  const ALL_SCREENS = ['login','main','loading','form','success','adressen','rechnungen','pdf'];
 
   // ── Init ──
   (function init() {
+    const locked = localStorage.getItem('kargl_locked') === '1';
+    if (locked && token) {
+      showLoginScreen(true);
+      const credId = localStorage.getItem('kargl_cred_id');
+      if (credId) setTimeout(unlockWithFaceID, 400);
+      return;
+    }
     if (token) checkToken();
     else show('login');
   })();
 
+  function show(name) {
+    ALL_SCREENS.forEach(n =>
+      document.getElementById(`s-${n}`).classList.toggle('hidden', n !== name)
+    );
+    if (name === 'login') showLoginScreen(localStorage.getItem('kargl_locked') === '1');
+  }
+
+  function showLoginScreen(isLocked) {
+    ALL_SCREENS.forEach(n =>
+      document.getElementById(`s-${n}`).classList.toggle('hidden', n !== 'login')
+    );
+    const credId  = localStorage.getItem('kargl_cred_id');
+    const hasFace = isLocked && !!credId;
+    document.getElementById('face-id-btn').style.display = hasFace ? 'block' : 'none';
+    document.getElementById('login-or').style.display    = hasFace ? 'block' : 'none';
+  }
+
+  // ── Auth ──
   async function checkToken() {
     try {
       const r = await fetch(`${API}/kargl/api/auth`, {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({token})
       });
       if (r.ok) show('main');
@@ -388,15 +609,79 @@
     if (!t) return;
     try {
       const r = await fetch(`${API}/kargl/api/auth`, {
-        method: 'POST', headers: {'Content-Type':'application/json'},
+        method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({token: t})
       });
       if (r.ok) {
-        token = t; localStorage.setItem('kargl_token', t); show('main');
+        token = t;
+        localStorage.setItem('kargl_token', t);
+        localStorage.removeItem('kargl_locked');
+        show('main');
       } else {
         setErr('login-err', 'Ungültiger Zugangscode');
       }
     } catch { setErr('login-err', 'Verbindungsfehler'); }
+  }
+
+  // ── WebAuthn / Face-ID ──
+  function b64(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  }
+  function fromB64(s) {
+    return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  }
+
+  async function lockApp() {
+    // WebAuthn-Credential einmalig registrieren falls noch nicht vorhanden
+    if (!localStorage.getItem('kargl_cred_id') && typeof PublicKeyCredential !== 'undefined') {
+      try {
+        const cred = await navigator.credentials.create({
+          publicKey: {
+            challenge: crypto.getRandomValues(new Uint8Array(32)),
+            rp: { name: 'Kargl Rechnung', id: RP_ID },
+            user: { id: new Uint8Array([1, 0, 0, 0]), name: 'kargl', displayName: 'Kargl' },
+            pubKeyCredParams: [
+              { alg: -7,   type: 'public-key' },
+              { alg: -257, type: 'public-key' }
+            ],
+            authenticatorSelection: {
+              authenticatorAttachment: 'platform',
+              userVerification: 'required',
+              residentKey: 'preferred'
+            },
+            timeout: 60000
+          }
+        });
+        localStorage.setItem('kargl_cred_id', b64(cred.rawId));
+      } catch (e) {
+        // Registrierung abgebrochen – einfach ausloggen
+      }
+    }
+    localStorage.setItem('kargl_locked', '1');
+    showLoginScreen(true);
+    const credId = localStorage.getItem('kargl_cred_id');
+    if (credId) setTimeout(unlockWithFaceID, 300);
+  }
+
+  async function unlockWithFaceID() {
+    const credId = localStorage.getItem('kargl_cred_id');
+    if (!credId) return;
+    setErr('login-err', '');
+    try {
+      await navigator.credentials.get({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rpId: RP_ID,
+          allowCredentials: [{ type: 'public-key', id: fromB64(credId) }],
+          userVerification: 'required',
+          timeout: 60000
+        }
+      });
+      localStorage.removeItem('kargl_locked');
+      show('main');
+    } catch (e) {
+      setErr('login-err', 'Face-ID fehlgeschlagen – Zugangscode eingeben');
+    }
   }
 
   // ── Upload & OCR ──
@@ -420,6 +705,9 @@
       if (!r.ok) { goMain(); setErr('main-err', d.error || 'OCR fehlgeschlagen'); return; }
       sessionId = d.session_id;
       fillForm(d.fields);
+      if (d.next_rechnungsnummer) {
+        document.getElementById('f-rechnungsnummer').value = d.next_rechnungsnummer;
+      }
       show('form');
     } catch(e) {
       goMain(); setErr('main-err', 'Verbindungsfehler: ' + e.message);
@@ -428,28 +716,25 @@
 
   // ── Form ──
   function fillForm(f) {
-    document.getElementById('f-anrede').value      = f.anrede      || 'Firma';
-    document.getElementById('f-name').value        = f.name        || '';
-    document.getElementById('f-strasse').value     = f.strasse_nr  || '';
-    document.getElementById('f-plz').value         = f.plz         || '';
-    document.getElementById('f-ort').value         = f.ort         || '';
+    document.getElementById('f-anrede').value       = f.anrede      || 'Firma';
+    document.getElementById('f-name').value         = f.name        || '';
+    document.getElementById('f-strasse').value      = f.strasse_nr  || '';
+    document.getElementById('f-plz').value          = f.plz         || '';
+    document.getElementById('f-ort').value          = f.ort         || '';
     document.getElementById('f-beschreibung').value = f.beschreibungstext || '';
-    document.getElementById('f-hinweis').value     = f.hinweis     || '';
+    document.getElementById('f-hinweis').value      = f.hinweis     || '';
+    document.getElementById('f-rechnungsnummer').value = '';
 
-    // Vorschau
     const th = document.getElementById('img-thumb');
     if (imgUrl) { th.src = imgUrl; th.style.display = 'block'; }
     else th.style.display = 'none';
 
-    // Warnung
     document.getElementById('warn-box').classList.toggle('hidden', !f.address_uncertain);
 
-    // Positionen zurücksetzen
     posIds.clear(); posIdSeq = 0;
     document.getElementById('pos-list').innerHTML = '';
     (f.positionen || []).forEach(p => addPos(p));
 
-    // Pauschal: falls keine Positionen aber brutto vorhanden
     if (!(f.positionen || []).length && f.brutto_auf_zettel) {
       document.getElementById('f-brutto').value = f.brutto_auf_zettel;
     }
@@ -497,7 +782,6 @@
     posIds.delete(id);
     const el = document.querySelector(`[data-pid="${id}"]`);
     if (el) el.remove();
-    // Nummern neu vergeben
     document.querySelectorAll('.pos-card').forEach((c, i) => {
       c.querySelector('.pos-nr').textContent = `Position ${i + 1}`;
     });
@@ -533,13 +817,16 @@
     const brutto = parseFloat(document.getElementById('f-brutto').value) || 0;
     const netto  = rnd(brutto / 1.19);
     const mwst   = rnd(netto * 0.19);
-    document.getElementById('c-netto').textContent = eur(netto);
-    document.getElementById('c-mwst').textContent  = eur(mwst);
+    document.getElementById('c-netto').textContent  = eur(netto);
+    document.getElementById('c-mwst').textContent   = eur(mwst);
     document.getElementById('c-brutto').textContent = eur(brutto);
   }
 
   function rnd(v) { return Math.round(v * 100) / 100; }
   function eur(v) { return v.toLocaleString('de-DE', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €'; }
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
 
   // ── Bestätigen ──
   async function confirmInvoice() {
@@ -549,8 +836,8 @@
 
     const positionen = [];
     posIds.forEach(id => {
-      const menge  = parseFloat(document.getElementById(`pm-${id}`)?.value);
-      const preis  = parseFloat(document.getElementById(`pp-${id}`)?.value);
+      const menge   = parseFloat(document.getElementById(`pm-${id}`)?.value);
+      const preis   = parseFloat(document.getElementById(`pp-${id}`)?.value);
       const einheit = (document.getElementById(`pe-${id}`)?.value || 'cbm').trim();
       const zusatz  = (document.getElementById(`pd-${id}`)?.value || '').trim();
       if (menge > 0 && preis > 0) positionen.push({menge, einheit, einzelpreis: preis, positions_beschreibung: zusatz});
@@ -567,22 +854,22 @@
       positionen,
       address_uncertain: false,
     };
-
     if (!positionen.length) {
       fields.brutto_auf_zettel = parseFloat(document.getElementById('f-brutto').value) || 0;
     }
-
     if (!fields.name) {
       setErr('form-err', 'Bitte Namen eingeben');
       btn.disabled = false; btn.textContent = 'Rechnung erstellen';
       return;
     }
 
+    const customNr = document.getElementById('f-rechnungsnummer').value.trim();
+
     try {
       const r = await fetch(`${API}/kargl/api/confirm`, {
         method: 'POST',
-        headers: {'Content-Type':'application/json', 'Authorization': `Bearer ${token}`},
-        body: JSON.stringify({session_id: sessionId, fields})
+        headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+        body: JSON.stringify({session_id: sessionId, fields, rechnungsnummer: customNr || undefined})
       });
       if (r.status === 401) { token = ''; localStorage.removeItem('kargl_token'); show('login'); return; }
       const d = await r.json();
@@ -591,8 +878,11 @@
         btn.disabled = false; btn.textContent = 'Rechnung erstellen';
         return;
       }
+
+      pdfSessionId = d.pdf_session_id || null;
       document.getElementById('ok-nr').textContent   = `Rechnungsnummer: ${d.rechnungsnummer}`;
       document.getElementById('ok-file').textContent = d.out_name;
+      document.getElementById('btn-pdf-open').style.display = pdfSessionId ? 'block' : 'none';
       show('success');
     } catch(e) {
       setErr('form-err', 'Verbindungsfehler: ' + e.message);
@@ -600,23 +890,196 @@
     }
   }
 
-  // ── Navigation ──
-  function show(name) {
-    ['login','main','loading','form','success'].forEach(n =>
-      document.getElementById(`s-${n}`).classList.toggle('hidden', n !== name)
-    );
+  // ── PDF-Viewer ──
+  function openPdfFromSession() {
+    if (!pdfSessionId) return;
+    pdfReturnScreen = 'success';
+    currentPdfUrl = `${API}/kargl/api/sessions/${pdfSessionId}/pdf?token=${encodeURIComponent(token)}`;
+    document.getElementById('pdf-frame').src = currentPdfUrl;
+    show('pdf');
   }
 
+  function openRechnungPdf(nr) {
+    pdfReturnScreen = 'rechnungen';
+    currentPdfUrl = `${API}/kargl/api/rechnungen/${encodeURIComponent(nr)}/pdf?token=${encodeURIComponent(token)}`;
+    document.getElementById('pdf-frame').src = currentPdfUrl;
+    show('pdf');
+  }
+
+  function closePdf() {
+    document.getElementById('pdf-frame').src = '';
+    show(pdfReturnScreen);
+  }
+
+  function sharePdf() {
+    if (currentPdfUrl) window.open(currentPdfUrl, '_blank');
+  }
+
+  // ── Navigation ──
   function goMain() {
     setErr('main-err', '');
     document.getElementById('file-inp').value = '';
     if (imgUrl) { URL.revokeObjectURL(imgUrl); imgUrl = ''; }
+    pdfSessionId = null;
     show('main');
   }
 
   function setErr(id, msg) {
     const el = document.getElementById(id); if (!el) return;
     el.textContent = msg;
+  }
+
+  // ── Adressen ──
+  async function loadAdressen() {
+    show('adressen');
+    document.getElementById('addr-list').innerHTML = '<div class="list-empty">Wird geladen…</div>';
+    setErr('addr-err', '');
+    try {
+      const r = await fetch(`${API}/kargl/api/adressen`, {
+        headers: {'Authorization': `Bearer ${token}`}
+      });
+      if (r.status === 401) { token = ''; localStorage.removeItem('kargl_token'); show('login'); return; }
+      const d = await r.json();
+      if (!r.ok) { setErr('addr-err', d.error || 'Fehler'); document.getElementById('addr-list').innerHTML = ''; return; }
+      addrData = d.adressen;
+      renderAdressen(addrData);
+    } catch(e) {
+      setErr('addr-err', 'Verbindungsfehler');
+      document.getElementById('addr-list').innerHTML = '';
+    }
+  }
+
+  function renderAdressen(list) {
+    const el = document.getElementById('addr-list');
+    if (!list.length) {
+      el.innerHTML = '<div class="list-empty">Keine Adressen vorhanden.</div>';
+      return;
+    }
+    el.innerHTML = list.map((a, i) => `
+      <div class="addr-card">
+        <div class="addr-info">
+          <div class="addr-name">${esc(a.name)}</div>
+          <div class="addr-detail">${esc(a.strasse)}, ${esc(a.plz)} ${esc(a.ort)}</div>
+        </div>
+        <button class="addr-edit-btn" onclick="editAddrByIdx(${i})">Bearbeiten</button>
+      </div>
+    `).join('');
+  }
+
+  function editAddrByIdx(idx) {
+    const a = addrData[idx];
+    document.getElementById('ae-row').value    = a.row;
+    document.getElementById('ae-name').value   = a.name;
+    document.getElementById('ae-strasse').value = a.strasse;
+    document.getElementById('ae-plz').value    = a.plz;
+    document.getElementById('ae-ort').value    = a.ort;
+    setErr('ae-err', '');
+    document.getElementById('ae-save-btn').disabled = false;
+    document.getElementById('ae-save-btn').textContent = 'Speichern';
+    document.getElementById('addr-modal').classList.add('show');
+  }
+
+  function closeAddrModal() {
+    document.getElementById('addr-modal').classList.remove('show');
+  }
+
+  async function saveAddr() {
+    const row     = parseInt(document.getElementById('ae-row').value);
+    const payload = {
+      name:    document.getElementById('ae-name').value.trim(),
+      strasse: document.getElementById('ae-strasse').value.trim(),
+      plz:     document.getElementById('ae-plz').value.trim(),
+      ort:     document.getElementById('ae-ort').value.trim(),
+    };
+    const btn = document.getElementById('ae-save-btn');
+    btn.disabled = true; btn.textContent = 'Speichern…';
+    setErr('ae-err', '');
+    try {
+      const r = await fetch(`${API}/kargl/api/adressen/${row}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+        body: JSON.stringify(payload)
+      });
+      const d = await r.json();
+      if (!r.ok) { setErr('ae-err', d.error || 'Fehler'); btn.disabled = false; btn.textContent = 'Speichern'; return; }
+      // Lokale Liste aktualisieren
+      const idx = addrData.findIndex(a => a.row === row);
+      if (idx >= 0) addrData[idx] = { ...addrData[idx], ...payload };
+      renderAdressen(addrData);
+      closeAddrModal();
+    } catch(e) {
+      setErr('ae-err', 'Verbindungsfehler');
+      btn.disabled = false; btn.textContent = 'Speichern';
+    }
+  }
+
+  // ── Rechnungsordner ──
+  async function loadRechnungen() {
+    show('rechnungen');
+    document.getElementById('rg-list').innerHTML = '<div class="list-empty">Wird geladen…</div>';
+    setErr('rg-err', '');
+    try {
+      const r = await fetch(`${API}/kargl/api/rechnungen`, {
+        headers: {'Authorization': `Bearer ${token}`}
+      });
+      if (r.status === 401) { token = ''; localStorage.removeItem('kargl_token'); show('login'); return; }
+      const d = await r.json();
+      if (!r.ok) { setErr('rg-err', d.error || 'Fehler'); document.getElementById('rg-list').innerHTML = ''; return; }
+      renderRechnungen(d.rechnungen);
+    } catch(e) {
+      setErr('rg-err', 'Verbindungsfehler');
+      document.getElementById('rg-list').innerHTML = '';
+    }
+  }
+
+  function renderRechnungen(list) {
+    const el = document.getElementById('rg-list');
+    if (!list.length) {
+      el.innerHTML = '<div class="list-empty">Keine Rechnungen vorhanden.</div>';
+      return;
+    }
+    el.innerHTML = list.map((r, i) => {
+      const name = [r.vorname, r.nachname].filter(Boolean).join(' ') || r.nachname || '–';
+      const betrag = r.brutto ? eur(r.brutto) : '–';
+      return `
+        <div class="rg-card">
+          <div class="rg-header">
+            <span class="rg-nr">${esc(r.nr)}</span>
+            <span class="rg-datum">${esc(r.datum)}</span>
+          </div>
+          <div class="rg-name">${esc(name)}</div>
+          <div class="rg-brutto">${betrag}</div>
+          <div class="rg-actions">
+            <button class="rg-btn rg-btn-primary" onclick="openRechnungPdf('${esc(r.nr)}')">PDF öffnen</button>
+            <button class="rg-btn" id="rg-v-${i}" onclick="verschiebeRechnung('${esc(r.nr)}', ${i})">Erledigt</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function verschiebeRechnung(nr, idx) {
+    const btn = document.getElementById(`rg-v-${idx}`);
+    if (!btn || btn.disabled) return;
+    btn.disabled = true; btn.textContent = 'Wird verschoben…';
+    try {
+      const r = await fetch(`${API}/kargl/api/rechnungen/${encodeURIComponent(nr)}/verschieben`, {
+        method: 'POST',
+        headers: {'Authorization': `Bearer ${token}`}
+      });
+      const d = await r.json();
+      if (r.ok) {
+        btn.textContent = '✓ Erledigt';
+        btn.style.color = 'var(--success)';
+        btn.style.borderColor = 'var(--success)';
+      } else {
+        btn.disabled = false; btn.textContent = 'Erledigt';
+        setErr('rg-err', d.error || 'Fehler beim Verschieben');
+      }
+    } catch(e) {
+      btn.disabled = false; btn.textContent = 'Erledigt';
+      setErr('rg-err', 'Verbindungsfehler');
+    }
   }
 
   // ── Scroll-to-Top ──
@@ -629,18 +1092,18 @@
   let ptrY = 0, ptrActive = false;
   document.addEventListener('touchstart', e => {
     if (window.scrollY === 0) { ptrY = e.touches[0].clientY; ptrActive = true; }
-  }, {passive:true});
+  }, {passive: true});
   document.addEventListener('touchmove', e => {
     if (!ptrActive) return;
     if (e.touches[0].clientY - ptrY > 50) ptrEl.classList.add('show');
-  }, {passive:true});
+  }, {passive: true});
   document.addEventListener('touchend', e => {
     if (!ptrActive) return;
     const dy = e.changedTouches[0].clientY - ptrY;
     if (dy > 80) location.reload();
     ptrEl.classList.remove('show');
     ptrActive = false;
-  }, {passive:true});
+  }, {passive: true});
 
   // ── Service Worker ──
   if ('serviceWorker' in navigator) {
@@ -659,6 +1122,5 @@
     });
   }
 </script>
-<button class="back-top" id="back-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">&#8679;</button>
 </body>
 </html>
