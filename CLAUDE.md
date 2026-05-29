@@ -122,6 +122,25 @@ Wird automatisch aus `_Rechnungsregister.xlsx` hochgezählt. Jahreswechsel → R
 
 ---
 
+## API-Endpunkte (Übersicht)
+
+| Methode | Pfad | Beschreibung |
+|---------|------|--------------|
+| POST | `/kargl/api/auth` | Token prüfen |
+| POST | `/kargl/api/ocr` | Bild hochladen → OCR → session_id + next_rechnungsnummer |
+| POST | `/kargl/api/confirm` | Felder bestätigen → ODT + PDF erstellen |
+| GET | `/kargl/api/sessions/{sid}/pdf` | PDF für In-App-Viewer (Bearer oder ?token=) |
+| GET | `/kargl/api/adressen` | Adressliste aus _Adressen.xlsx |
+| POST | `/kargl/api/adressen/{row}` | Adresszeile aktualisieren |
+| POST | `/kargl/api/adressen/{row}/loeschen` | Adresszeile löschen |
+| GET | `/kargl/api/rechnungen` | Rechnungsliste aus Register (max. 60, neueste zuerst) + status |
+| GET | `/kargl/api/rechnungen/{nr}/pdf` | ODT → PDF (sucht in Entwurf + Erledigt) |
+| POST | `/kargl/api/rechnungen/{nr}/verschieben` | ODT Entwurf → Erledigt |
+| GET | `/kargl/api/rechnungen/{nr}/felder` | Bekannte Felder für Bearbeiten-Flow |
+| POST | `/kargl/api/rechnungen/{nr}/neu-erstellen` | Rechnung überschreiben + Register aktualisieren |
+
+**`require_token_or_param`:** PDF-Endpoints akzeptieren Token auch als `?token=` Query-Parameter (für iframe-Src).
+
 ## Pitfalls
 
 - **`INVOICE_CURSOR_FILE` und `INVOICE_TEMPLATE`** zeigen auf `/opt/kargl-invoice/`, nicht `/opt/rename-webhook/` – Verwechslung historisch möglich
@@ -134,7 +153,14 @@ Wird automatisch aus `_Rechnungsregister.xlsx` hochgezählt. Jahreswechsel → R
 - **`[BITTE PRÜFEN]`** erscheint im Dokument wenn: Adresse korrigiert, Adresse nicht verifiziert, Rechenabweichung >0,02 €
 - **nginx `sites-enabled` ist eine Kopie, kein Symlink** – Änderungen an `sites-available/rename-webhook` müssen immer mit `cp sites-available/rename-webhook sites-enabled/rename-webhook` übernommen werden, sonst bleibt nginx auf dem alten Stand
 - **LibreOffice OCR-Timeout** – Konvertierung kann bis zu 30s dauern; bei sehr großen Dateien ggf. Timeout anpassen
+- **Icon-Generierung via cairosvg** – `_generate_kargl_icon()` nutzt `cairosvg` + Lucide Receipt-SVG (`_KARGL_ICON_SVG`-Konstante in app.py); Icons liegen in `/opt/kargl-invoice/icons/` und werden beim Start generiert wenn nicht vorhanden. Nach Icon-Änderung: `rm -f /opt/kargl-invoice/icons/*.png && systemctl restart kargl-invoice`
 - **`KARGL_APP_TOKEN` fehlt → App zeigt Login, aber alle API-Calls liefern 401** – Token in `/etc/pka/secrets.env` eintragen + `systemctl restart kargl-invoice`
+- **Icon zeigt altes K auf neuem Gerät** → Version-Marker `.version` in `/opt/kargl-invoice/icons/` prüfen; `rm /opt/kargl-invoice/icons/.version && systemctl restart kargl-invoice` erzwingt Neugenerierung
+- **Rechnungsordner „PDF öffnen" Fehler** → ODT liegt nicht mehr in Entwurf aber auch nicht in Erledigt? → manuell in einem der beiden Ordner ablegen
+- **Bearbeiten-Flow: Positionen fehlen** → Register speichert keine Einzelpositionen; Formular öffnet im Pauschalbetrag-Modus mit bekanntem Brutto
+- **Register-Beschreibungstext** → frühere Einträge haben max. 60 Zeichen (altes Limit); ab 2026-05-29 werden 500 Zeichen gespeichert
+- **WebAuthn Face-ID** → `rpId: umbenennen.duckdns.org` – Credential gilt nur für diese Domain; bei Domain-Wechsel muss Credential neu registriert werden (einmalig „App beenden")
+- **PDF-Viewer Pinch-Zoom** → funktioniert auf iOS nicht zuverlässig im iframe (bekannte Einschränkung); „Teilen / Drucken" → „In Dateien öffnen" für Vollansicht mit Zoom
 
 ---
 
@@ -165,20 +191,33 @@ CLAUDE_INVOICE_MODEL=claude-opus-4-7
 
 **URL:** `https://umbenennen.duckdns.org/kargl/`
 **Auth:** Token-Login (Bearer-Token, `KARGL_APP_TOKEN` in secrets.env)
+**Face-ID:** WebAuthn nach „App beenden" – `rpId: umbenennen.duckdns.org`, Credential in localStorage
 
-### Neuer Flow (primär)
+### Primärer Flow (Scan → Rechnung)
 
 ```
 App: Foto aufnehmen / Datei wählen
     ↓ POST /kargl/api/ocr (multipart, Bearer-Token)
-Server: Claude OCR → JSON-Felder zurück + session_id
+Server: Claude OCR → JSON-Felder + session_id + next_rechnungsnummer
     ↓ (~5–15 Sek)
-App: Editierbare Felder + Bildvorschau
-    ↓ POST /kargl/api/confirm (editierte Felder + session_id)
-Server: Rechnungsnummer vergeben, docx → ODT, Dropbox Entwurf,
-        Adressen.xlsx (neue Kunden), Rechnungsregister.xlsx
+App: Editierbare Felder + Rechnungsnummer (vorausgefüllt, überschreibbar)
+    ↓ POST /kargl/api/confirm (editierte Felder + session_id + opt. rechnungsnummer)
+Server: Rechnungsnummer vergeben/übernehmen, docx → ODT, PDF generieren,
+        Dropbox Entwurf, Adressen.xlsx (neue Kunden), Rechnungsregister.xlsx
     ↓
-App: "✅ Rechnung erstellt"
+App: Erfolgsmeldung + PDF öffnen / Neue Rechnung / Adressen / App beenden
+```
+
+### Bearbeiten-Flow (Entwurf-Rechnung ändern)
+
+```
+Rechnungsordner → Bearbeiten (nur bei status=entwurf)
+    ↓ GET /kargl/api/rechnungen/{nr}/felder
+Server: Felder aus Register + Adresse aus _Adressen.xlsx
+    ↓
+App: Formular vorausgefüllt (Pauschalbetrag-Modus, Positionen nicht wiederherstellbar)
+    ↓ POST /kargl/api/rechnungen/{nr}/neu-erstellen
+Server: Alte ODT löschen, neue ODT erstellen, Register aktualisieren, PDF generieren
 ```
 
 ### Session-Files
