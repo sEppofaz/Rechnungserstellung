@@ -345,6 +345,28 @@
     }
     .chip:active { opacity: 0.65; }
 
+    /* ── E-RECHNUNG TOGGLE ── */
+    .erechnung-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg2); border-radius: 12px; padding: 14px 16px;
+      margin-bottom: 10px;
+    }
+    .erechnung-label { font-size: 15px; font-weight: 600; }
+    .erechnung-sub   { font-size: 12px; color: var(--text2); margin-top: 2px; }
+    .toggle-wrap { position: relative; width: 50px; height: 28px; flex-shrink: 0; }
+    .toggle-wrap input { opacity: 0; width: 0; height: 0; }
+    .toggle-track {
+      position: absolute; inset: 0; background: var(--bg3); border-radius: 14px;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .toggle-wrap input:checked + .toggle-track { background: var(--primary); }
+    .toggle-track::before {
+      content: ''; position: absolute; width: 22px; height: 22px;
+      left: 3px; top: 3px; background: #fff; border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-wrap input:checked + .toggle-track::before { transform: translateX(22px); }
+
     /* ── SCROLL-TO-TOP ── */
     .back-top {
       position: fixed; bottom: calc(24px + var(--safe-b)); right: 16px;
@@ -494,6 +516,17 @@
   <label class="sec-label">Zahlungshinweis <span style="font-weight:400;text-transform:none">(optional)</span></label>
   <textarea id="f-hinweis" rows="2" placeholder="z. B. Betrag bereits bar bezahlt."></textarea>
 
+  <div class="erechnung-row" style="margin-top:20px">
+    <div>
+      <div class="erechnung-label">E-Rechnung (ZUGFeRD)</div>
+      <div class="erechnung-sub">Zusätzlich als maschinenlesbare PDF in Dropbox</div>
+    </div>
+    <label class="toggle-wrap">
+      <input type="checkbox" id="toggle-erechnung" onchange="setERechn(this.checked)">
+      <span class="toggle-track"></span>
+    </label>
+  </div>
+
   <div class="form-actions">
     <button class="btn btn-primary" id="confirm-btn" onclick="confirmInvoice()">Rechnung erstellen</button>
     <button class="btn btn-ghost" onclick="editNr ? (loadRechnungen(), _resetEditMode()) : goMain()">Abbrechen</button>
@@ -599,6 +632,13 @@
   let editNr          = null;
   let rechnungenData  = [];
   let leistungen      = [];
+  let eRechnung       = localStorage.getItem('kargl_erechnung') === '1';
+
+  function setERechn(val) {
+    eRechnung = val;
+    localStorage.setItem('kargl_erechnung', val ? '1' : '0');
+    document.getElementById('toggle-erechnung').checked = val;
+  }
 
   const ALL_SCREENS = ['login','main','loading','form','success','adressen','rechnungen','pdf'];
 
@@ -789,6 +829,7 @@
     const btn = document.getElementById('confirm-btn');
     btn.disabled = false; btn.textContent = 'Rechnung erstellen';
     setErr('form-err', '');
+    document.getElementById('toggle-erechnung').checked = eRechnung;
 
     const name = f.name || '';
     document.getElementById('form-sub').textContent =
@@ -915,8 +956,8 @@
       ? `${API}/kargl/api/rechnungen/${encodeURIComponent(editNr)}/neu-erstellen`
       : `${API}/kargl/api/confirm`;
     const body      = isEdit
-      ? JSON.stringify({fields})
-      : JSON.stringify({session_id: sessionId, fields, rechnungsnummer: customNr || undefined});
+      ? JSON.stringify({fields, e_rechnung: eRechnung})
+      : JSON.stringify({session_id: sessionId, fields, rechnungsnummer: customNr || undefined, e_rechnung: eRechnung});
 
     try {
       const r = await fetch(endpoint, {
@@ -934,7 +975,9 @@
 
       pdfSessionId = d.pdf_session_id || null;
       document.getElementById('ok-nr').textContent   = `Rechnungsnummer: ${d.rechnungsnummer}`;
-      document.getElementById('ok-file').textContent = d.out_name;
+      document.getElementById('ok-file').textContent = d.er_name
+        ? `${d.out_name}\n+ ${d.er_name}`
+        : d.out_name;
       document.getElementById('btn-pdf-open').style.display = pdfSessionId ? 'block' : 'none';
       // Im Edit-Modus: "Neue Rechnung" → zurück zu Rechnungsordner
       const backBtn = document.getElementById('btn-back-from-done');

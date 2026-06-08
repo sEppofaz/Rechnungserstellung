@@ -32,6 +32,12 @@ try:
 except ImportError:
     _HEIC_SUPPORTED = False
 
+try:
+    import facturx as _facturx_lib
+    _FACTURX_OK = True
+except ImportError:
+    _FACTURX_OK = False
+
 import anthropic
 import dropbox
 from docxtpl import DocxTemplate
@@ -72,6 +78,19 @@ MEDIA_TYPES = {
     ".tif":  "image/tiff",
     ".webp": "image/webp",
     ".bmp":  "image/bmp",
+}
+
+_SELLER = {
+    "name":          "Josef Kargl, Holzimprägnierwerk",
+    "line1":         "Traich 2",
+    "plz":           "84101",
+    "city":          "Obersüßbach",
+    "country":       "DE",
+    "vat_id":        "DE128890175",
+    "iban":          "DE41743626630005519870",
+    "bic":           "GENODEF1ERG",
+    "payment_terms": "Zahlung erbitten wir binnen 8 Tagen netto Kasse.",
+    "payment_days":  8,
 }
 
 _ADDR_HEADERS = ["Name", "Straße", "PLZ", "Ort", "Straße validiert", "PLZ+Ort validiert", "Hinzugefügt"]
@@ -229,6 +248,188 @@ def _startup() -> None:
 
 
 _startup()
+
+
+# ── ZUGFeRD / e-Rechnung ──────────────────────────────────────────────────────
+
+_UNIT_CODES = {
+    "cbm": "MTQ", "m³": "MTQ", "fm": "MTQ",
+    "lfm": "MTR", "m":  "MTR",
+    "st.": "C62", "st": "C62", "stk": "C62", "stück": "C62",
+}
+
+
+def _unit_code(einheit: str) -> str:
+    return _UNIT_CODES.get((einheit or "cbm").lower(), "C62")
+
+
+def _xe(s) -> str:
+    return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def _build_zugferd_xml(data: dict, calc: dict, rechnungsnummer: str, datum: datetime) -> bytes:
+    from datetime import timedelta
+    datum_iso  = datum.strftime("%Y%m%d")
+    due_iso    = (datum + timedelta(days=_SELLER["payment_days"])).strftime("%Y%m%d")
+    positionen = [p for p in (data.get("positionen") or [])
+                  if (p.get("menge") or p.get("menge_cbm")) and p.get("einzelpreis")]
+    netto  = calc["netto"]
+    mwst   = calc["mwst"]
+    brutto = calc["brutto"]
+
+    if positionen:
+        lines = []
+        for i, p in enumerate(positionen, 1):
+            menge   = p.get("menge") or p.get("menge_cbm")
+            ep      = p["einzelpreis"]
+            gesamt  = round(menge * ep, 2)
+            beschr  = _xe(p.get("positions_beschreibung") or data.get("beschreibungstext") or "Lieferung")
+            ucode   = _unit_code(p.get("einheit", "cbm"))
+            lines.append(
+                f'  <ram:IncludedSupplyChainTradeLineItem>'
+                f'<ram:AssociatedDocumentLineDocument><ram:LineID>{i}</ram:LineID></ram:AssociatedDocumentLineDocument>'
+                f'<ram:SpecifiedTradeProduct><ram:Name>{beschr}</ram:Name></ram:SpecifiedTradeProduct>'
+                f'<ram:SpecifiedLineTradeAgreement><ram:NetPriceProductTradePrice>'
+                f'<ram:ChargeAmount>{ep:.2f}</ram:ChargeAmount>'
+                f'</ram:NetPriceProductTradePrice></ram:SpecifiedLineTradeAgreement>'
+                f'<ram:SpecifiedLineTradeDelivery>'
+                f'<ram:BilledQuantity unitCode="{ucode}">{menge:.4f}</ram:BilledQuantity>'
+                f'</ram:SpecifiedLineTradeDelivery>'
+                f'<ram:SpecifiedLineTradeSettlement>'
+                f'<ram:ApplicableTradeTax><ram:TypeCode>VAT</ram:TypeCode>'
+                f'<ram:CategoryCode>S</ram:CategoryCode>'
+                f'<ram:RateApplicablePercent>19</ram:RateApplicablePercent></ram:ApplicableTradeTax>'
+                f'<ram:SpecifiedTradeSettlementLineMonetarySummation>'
+                f'<ram:LineTotalAmount>{gesamt:.2f}</ram:LineTotalAmount>'
+                f'</ram:SpecifiedTradeSettlementLineMonetarySummation>'
+                f'</ram:SpecifiedLineTradeSettlement>'
+                f'</ram:IncludedSupplyChainTradeLineItem>'
+            )
+        lines_xml = "\n".join(lines)
+    else:
+        beschr    = _xe(data.get("beschreibungstext") or "Lieferung")
+        lines_xml = (
+            f'  <ram:IncludedSupplyChainTradeLineItem>'
+            f'<ram:AssociatedDocumentLineDocument><ram:LineID>1</ram:LineID></ram:AssociatedDocumentLineDocument>'
+            f'<ram:SpecifiedTradeProduct><ram:Name>{beschr}</ram:Name></ram:SpecifiedTradeProduct>'
+            f'<ram:SpecifiedLineTradeAgreement><ram:NetPriceProductTradePrice>'
+            f'<ram:ChargeAmount>{netto:.2f}</ram:ChargeAmount>'
+            f'</ram:NetPriceProductTradePrice></ram:SpecifiedLineTradeAgreement>'
+            f'<ram:SpecifiedLineTradeDelivery>'
+            f'<ram:BilledQuantity unitCode="C62">1</ram:BilledQuantity>'
+            f'</ram:SpecifiedLineTradeDelivery>'
+            f'<ram:SpecifiedLineTradeSettlement>'
+            f'<ram:ApplicableTradeTax><ram:TypeCode>VAT</ram:TypeCode>'
+            f'<ram:CategoryCode>S</ram:CategoryCode>'
+            f'<ram:RateApplicablePercent>19</ram:RateApplicablePercent></ram:ApplicableTradeTax>'
+            f'<ram:SpecifiedTradeSettlementLineMonetarySummation>'
+            f'<ram:LineTotalAmount>{netto:.2f}</ram:LineTotalAmount>'
+            f'</ram:SpecifiedTradeSettlementLineMonetarySummation>'
+            f'</ram:SpecifiedLineTradeSettlement>'
+            f'</ram:IncludedSupplyChainTradeLineItem>'
+        )
+
+    xml = (
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        '<rsm:CrossIndustryInvoice\n'
+        '  xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"\n'
+        '  xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100"\n'
+        '  xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">\n'
+        '  <rsm:ExchangedDocumentContext>\n'
+        '    <ram:GuidelineSpecifiedDocumentContextParameter>\n'
+        '      <ram:ID>urn:cen.eu:en16931:2017#conformant#urn:factur-x.eu:1p0:en16931</ram:ID>\n'
+        '    </ram:GuidelineSpecifiedDocumentContextParameter>\n'
+        '  </rsm:ExchangedDocumentContext>\n'
+        '  <rsm:ExchangedDocument>\n'
+        f'    <ram:ID>{_xe(rechnungsnummer)}</ram:ID>\n'
+        '    <ram:TypeCode>380</ram:TypeCode>\n'
+        '    <ram:IssueDateTime>\n'
+        f'      <udt:DateTimeString format="102">{datum_iso}</udt:DateTimeString>\n'
+        '    </ram:IssueDateTime>\n'
+        '  </rsm:ExchangedDocument>\n'
+        '  <rsm:SupplyChainTradeTransaction>\n'
+        f'{lines_xml}\n'
+        '    <ram:ApplicableHeaderTradeAgreement>\n'
+        '      <ram:SellerTradeParty>\n'
+        f'        <ram:Name>{_xe(_SELLER["name"])}</ram:Name>\n'
+        '        <ram:PostalTradeAddress>\n'
+        f'          <ram:LineOne>{_xe(_SELLER["line1"])}</ram:LineOne>\n'
+        f'          <ram:PostcodeCode>{_xe(_SELLER["plz"])}</ram:PostcodeCode>\n'
+        f'          <ram:CityName>{_xe(_SELLER["city"])}</ram:CityName>\n'
+        f'          <ram:CountryID>{_SELLER["country"]}</ram:CountryID>\n'
+        '        </ram:PostalTradeAddress>\n'
+        '        <ram:SpecifiedTaxRegistration>\n'
+        f'          <ram:ID schemeID="VA">{_xe(_SELLER["vat_id"])}</ram:ID>\n'
+        '        </ram:SpecifiedTaxRegistration>\n'
+        '      </ram:SellerTradeParty>\n'
+        '      <ram:BuyerTradeParty>\n'
+        f'        <ram:Name>{_xe(data.get("name", ""))}</ram:Name>\n'
+        '        <ram:PostalTradeAddress>\n'
+        f'          <ram:LineOne>{_xe(data.get("strasse_nr", ""))}</ram:LineOne>\n'
+        f'          <ram:PostcodeCode>{_xe(data.get("plz", ""))}</ram:PostcodeCode>\n'
+        f'          <ram:CityName>{_xe(data.get("ort", ""))}</ram:CityName>\n'
+        '          <ram:CountryID>DE</ram:CountryID>\n'
+        '        </ram:PostalTradeAddress>\n'
+        '      </ram:BuyerTradeParty>\n'
+        '    </ram:ApplicableHeaderTradeAgreement>\n'
+        '    <ram:ApplicableHeaderTradeDelivery/>\n'
+        '    <ram:ApplicableHeaderTradeSettlement>\n'
+        f'      <ram:PaymentReference>{_xe(rechnungsnummer)}</ram:PaymentReference>\n'
+        '      <ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>\n'
+        '      <ram:SpecifiedTradeSettlementPaymentMeans>\n'
+        '        <ram:TypeCode>58</ram:TypeCode>\n'
+        '        <ram:PayeePartyCreditorFinancialAccount>\n'
+        f'          <ram:IBANID>{_xe(_SELLER["iban"])}</ram:IBANID>\n'
+        '        </ram:PayeePartyCreditorFinancialAccount>\n'
+        '        <ram:PayeeSpecifiedCreditorFinancialInstitution>\n'
+        f'          <ram:BICID>{_xe(_SELLER["bic"])}</ram:BICID>\n'
+        '        </ram:PayeeSpecifiedCreditorFinancialInstitution>\n'
+        '      </ram:SpecifiedTradeSettlementPaymentMeans>\n'
+        '      <ram:ApplicableTradeTax>\n'
+        f'        <ram:CalculatedAmount>{mwst:.2f}</ram:CalculatedAmount>\n'
+        '        <ram:TypeCode>VAT</ram:TypeCode>\n'
+        f'        <ram:BasisAmount>{netto:.2f}</ram:BasisAmount>\n'
+        '        <ram:CategoryCode>S</ram:CategoryCode>\n'
+        '        <ram:RateApplicablePercent>19</ram:RateApplicablePercent>\n'
+        '      </ram:ApplicableTradeTax>\n'
+        '      <ram:SpecifiedTradePaymentTerms>\n'
+        f'        <ram:Description>{_xe(_SELLER["payment_terms"])}</ram:Description>\n'
+        '        <ram:DueDateDateTime>\n'
+        f'          <udt:DateTimeString format="102">{due_iso}</udt:DateTimeString>\n'
+        '        </ram:DueDateDateTime>\n'
+        '      </ram:SpecifiedTradePaymentTerms>\n'
+        '      <ram:SpecifiedTradeSettlementHeaderMonetarySummation>\n'
+        f'        <ram:LineTotalAmount>{netto:.2f}</ram:LineTotalAmount>\n'
+        f'        <ram:TaxBasisTotalAmount>{netto:.2f}</ram:TaxBasisTotalAmount>\n'
+        f'        <ram:TaxTotalAmount currencyID="EUR">{mwst:.2f}</ram:TaxTotalAmount>\n'
+        f'        <ram:GrandTotalAmount>{brutto:.2f}</ram:GrandTotalAmount>\n'
+        f'        <ram:DuePayableAmount>{brutto:.2f}</ram:DuePayableAmount>\n'
+        '      </ram:SpecifiedTradeSettlementHeaderMonetarySummation>\n'
+        '    </ram:ApplicableHeaderTradeSettlement>\n'
+        '  </rsm:SupplyChainTradeTransaction>\n'
+        '</rsm:CrossIndustryInvoice>'
+    )
+    return xml.encode("utf-8")
+
+
+def _create_zugferd_pdf(pdf_path: str, data: dict, calc: dict,
+                        rechnungsnummer: str, datum: datetime) -> bytes | None:
+    if not _FACTURX_OK:
+        log("⚠️  factur-x nicht installiert – e-Rechnung übersprungen")
+        return None
+    try:
+        xml_bytes = _build_zugferd_xml(data, calc, rechnungsnummer, datum)
+        pdf_bytes = Path(pdf_path).read_bytes()
+        result    = _facturx_lib.generate_facturx(
+            pdf_bytes, xml_bytes,
+            flavor="factur-x",
+            level="EN 16931",
+            check_xsd=False,
+        )
+        return result
+    except Exception as e:
+        log(f"⚠️  ZUGFeRD-Generierung: {e}")
+        return None
 
 
 # ── Dropbox ───────────────────────────────────────────────────────────────────
@@ -1037,6 +1238,7 @@ def kargl_confirm():
     session_id = body.get("session_id", "")
     fields     = body.get("fields", {})
     custom_nr  = (body.get("rechnungsnummer") or "").strip()
+    e_rechnung = bool(body.get("e_rechnung", False))
 
     if not session_id:
         return {"error": "Keine Session"}, 400
@@ -1088,13 +1290,23 @@ def kargl_confirm():
                 dbx.files_upload(fh.read(), done_path, mode=dropbox.files.WriteMode.overwrite, mute=True)
             log(f"📁  App: Original archiviert: {done_path}")
 
-        # PDF für In-App-Viewer generieren
+        # PDF für In-App-Viewer und ggf. e-Rechnung generieren
+        jetzt          = datetime.now()
         pdf_session_id = None
-        tmp_pdf = convert_to_pdf(tmp_odt)
+        er_name        = None
+        tmp_pdf        = convert_to_pdf(tmp_odt)
         if tmp_pdf:
+            if e_rechnung:
+                er_bytes = _create_zugferd_pdf(tmp_pdf, fields, calc, rechnungsnummer, jetzt)
+                if er_bytes:
+                    er_name  = f"{nr_prefix}_eRechnung_{clean_name}_{datum_str}_{brutto_str}€.pdf"
+                    er_path  = f"{INVOICE_OUTPUT_FOLDER}/{er_name}"
+                    dbx.files_upload(er_bytes, er_path,
+                                     mode=dropbox.files.WriteMode.overwrite, mute=True)
+                    log(f"📄  ZUGFeRD hochgeladen: {er_path}")
             pdf_dest = SESSIONS_DIR / f"{session_id}.pdf"
             shutil.move(tmp_pdf, str(pdf_dest))
-            tmp_pdf = None  # bereits verschoben
+            tmp_pdf        = None
             pdf_session_id = session_id
             log(f"📄  PDF erstellt: {pdf_dest.name}")
 
@@ -1103,7 +1315,7 @@ def kargl_confirm():
 
         log(f"✅  App: Rechnung erstellt: {out_name}")
         return {"out_name": out_name, "rechnungsnummer": rechnungsnummer,
-                "pdf_session_id": pdf_session_id}
+                "pdf_session_id": pdf_session_id, "er_name": er_name}
 
     except Exception as e:
         log(f"❌  App Confirm Fehler: {e}")
@@ -1430,9 +1642,10 @@ def kargl_rechnung_neu_erstellen(nr):
     """Überschreibt eine bestehende Entwurf-Rechnung mit aktualisierten Feldern."""
     if not re.match(r'^[\w\-_]+$', nr):
         abort(400)
-    body   = request.json or {}
-    fields = body.get("fields", {})
-    name   = fields.get("name", "")
+    body       = request.json or {}
+    fields     = body.get("fields", {})
+    name       = fields.get("name", "")
+    e_rechnung = bool(body.get("e_rechnung", False))
 
     dbx  = get_dropbox_client()
     calc = calculate_and_validate(fields)
@@ -1468,10 +1681,20 @@ def kargl_rechnung_neu_erstellen(nr):
 
         _update_invoice_register(dbx, nr, fields, calc)
 
-        # PDF für In-App-Viewer
+        # PDF für In-App-Viewer und ggf. e-Rechnung
+        jetzt          = datetime.now()
         pdf_session_id = None
-        tmp_pdf = convert_to_pdf(tmp_odt)
+        er_name        = None
+        tmp_pdf        = convert_to_pdf(tmp_odt)
         if tmp_pdf:
+            if e_rechnung:
+                er_bytes = _create_zugferd_pdf(tmp_pdf, fields, calc, nr, jetzt)
+                if er_bytes:
+                    er_name  = f"{nr_prefix}_eRechnung_{clean_name}_{datum_str}_{brutto_str}€.pdf"
+                    er_path  = f"{INVOICE_OUTPUT_FOLDER}/{er_name}"
+                    dbx.files_upload(er_bytes, er_path,
+                                     mode=dropbox.files.WriteMode.overwrite, mute=True)
+                    log(f"📄  ZUGFeRD (bearbeitet) hochgeladen: {er_path}")
             SESSIONS_DIR.mkdir(exist_ok=True)
             edit_sid  = uuid_module.uuid4().hex
             pdf_dest  = SESSIONS_DIR / f"{edit_sid}.pdf"
@@ -1479,7 +1702,8 @@ def kargl_rechnung_neu_erstellen(nr):
             tmp_pdf        = None
             pdf_session_id = edit_sid
 
-        return {"out_name": out_name, "rechnungsnummer": nr, "pdf_session_id": pdf_session_id}
+        return {"out_name": out_name, "rechnungsnummer": nr,
+                "pdf_session_id": pdf_session_id, "er_name": er_name}
 
     except Exception as e:
         log(f"❌  Neu-Erstellen {nr}: {e}")
