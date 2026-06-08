@@ -164,6 +164,7 @@ Wird automatisch aus `_Rechnungsregister.xlsx` hochgezählt. Jahreswechsel → R
 - **Register-Beschreibungstext** → frühere Einträge haben max. 60 Zeichen (altes Limit); ab 2026-05-29 werden 500 Zeichen gespeichert
 - **WebAuthn Face-ID** → `rpId: umbenennen.duckdns.org` – Credential gilt nur für diese Domain; bei Domain-Wechsel muss Credential neu registriert werden (einmalig „App beenden")
 - **PDF-Viewer Pinch-Zoom** → funktioniert auf iOS nicht zuverlässig im iframe (bekannte Einschränkung); „Teilen / Drucken" → „In Dateien öffnen" für Vollansicht mit Zoom
+- **ZUGFeRD / e-Rechnung** → `factur-x` 4.2 unter `/opt/kargl-invoice/bin/pip`; Seller-Daten in `_SELLER`-Konstante in `app.py` (Änderung → nur Code-Deploy, kein scp); Toggle-Zustand in localStorage `kargl_erechnung`; e-Rechnung landet als `*_eRechnung_*.pdf` zusätzlich zur ODT in `Rechnungen_Entwurf/`; `check_xsd=False` (Performance); Buyer-CountryID ist hardcoded `DE`
 
 ---
 

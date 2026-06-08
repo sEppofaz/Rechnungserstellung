@@ -1162,9 +1162,8 @@
       });
       const d = await r.json();
       if (r.ok) {
-        addrData.splice(idx, 1);
         closeAddrModal();
-        renderAdressen(addrData);
+        loadAdressen();
       } else {
         setErr('addr-err', d.error || 'Fehler beim Löschen');
       }

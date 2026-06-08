@@ -780,7 +780,7 @@ def get_next_invoice_number(dbx: dropbox.Dropbox) -> str:
         pass
     except Exception as e:
         log(f"⚠️  Rechnungsnummer lesen: {e}")
-    return _format_invoice_nr(17, current_year)
+    return _format_invoice_nr(1, current_year)
 
 
 def _ensure_register_excel(dbx: dropbox.Dropbox):
@@ -797,6 +797,7 @@ def _ensure_register_excel(dbx: dropbox.Dropbox):
             cell.fill = header_fill
         for col, width in zip("ABCDEFGHI", [16, 12, 10, 22, 18, 45, 12, 12, 12]):
             ws.column_dimensions[col].width = width
+        _upload_excel(dbx, wb, INVOICE_REGISTER_FILE)
         log("📊  Rechnungsregister.xlsx neu angelegt")
         return wb
 
