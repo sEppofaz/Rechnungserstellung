@@ -495,7 +495,10 @@
   </div>
 
   <label class="sec-label">Rechnungsnummer</label>
-  <input type="text" id="f-rechnungsnummer" placeholder="wird automatisch vergeben" style="margin-bottom:8px">
+  <input type="text" id="f-rechnungsnummer" placeholder="wird automatisch vergeben" style="margin-bottom:4px">
+  <div id="edit-mode-hint" style="display:none;margin-bottom:12px">
+    <button class="btn btn-ghost" style="font-size:13px;padding:6px 12px" onclick="_resetEditMode(); loadRechnungen()">&#8592; Rechnungsordner</button>
+  </div>
 
   <label class="sec-label">Empfänger</label>
   <select id="f-anrede" style="margin-bottom:8px">
@@ -575,6 +578,8 @@
       PDF öffnen / Drucken
     </button>
     <button id="btn-back-from-done" class="btn btn-ghost" onclick="goMain()">Neue Rechnung erstellen</button>
+    <button class="btn btn-ghost" onclick="goMain()">Startbildschirm</button>
+    <button class="btn btn-ghost" onclick="loadRechnungen()">Rechnungsregister</button>
     <button class="btn btn-ghost" onclick="loadAdressen()">Adressen bearbeiten</button>
     <button class="btn btn-danger" onclick="lockApp()">App beenden</button>
   </div>
@@ -1127,6 +1132,7 @@
     nr.readOnly = false; nr.style.opacity = '1';
     document.getElementById('confirm-btn').textContent = 'Rechnung erstellen';
     document.getElementById('btn-rechnungsordner-link').style.display = 'none';
+    document.getElementById('edit-mode-hint').style.display = 'none';
   }
 
   function setErr(id, msg) {
@@ -1288,6 +1294,7 @@
       document.getElementById('confirm-btn').textContent = 'Rechnung aktualisieren';
       document.getElementById('form-sub').textContent = 'Felder prüfen und bearbeiten';
       document.getElementById('btn-rechnungsordner-link').style.display = 'block';
+      document.getElementById('edit-mode-hint').style.display = 'block';
       show('form');
     } catch(e) {
       show('rechnungen');

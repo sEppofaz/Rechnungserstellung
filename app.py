@@ -420,7 +420,7 @@ def _create_zugferd_pdf(pdf_path: str, data: dict, calc: dict,
     try:
         xml_bytes = _build_zugferd_xml(data, calc, rechnungsnummer, datum)
         pdf_bytes = Path(pdf_path).read_bytes()
-        result    = _facturx_lib.generate_facturx(
+        result    = _facturx_lib.generate_from_binary(
             pdf_bytes, xml_bytes,
             flavor="factur-x",
             level="EN 16931",
