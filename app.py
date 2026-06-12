@@ -93,7 +93,7 @@ _SELLER = {
     "payment_days":  8,
 }
 
-_ADDR_HEADERS = ["Name", "Straße", "PLZ", "Ort", "Straße validiert", "PLZ+Ort validiert", "Hinzugefügt", "Anrede"]
+_ADDR_HEADERS = ["Anrede", "Name", "Straße", "PLZ", "Ort", "Straße validiert", "PLZ+Ort validiert", "Hinzugefügt"]
 _REG_HEADERS  = ["Rechnungsnummer", "Datum", "Anrede", "Nachname", "Vorname",
                  "Produkt", "Netto (€)", "MwSt (€)", "Brutto (€)"]
 
@@ -710,13 +710,14 @@ def _ensure_address_excel(dbx: dropbox.Dropbox):
         for cell in ws[1]:
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = header_fill
-        ws.column_dimensions["A"].width = 30
-        ws.column_dimensions["B"].width = 25
-        ws.column_dimensions["C"].width = 8
-        ws.column_dimensions["D"].width = 20
-        ws.column_dimensions["E"].width = 18
+        ws.column_dimensions["A"].width = 12
+        ws.column_dimensions["B"].width = 30
+        ws.column_dimensions["C"].width = 25
+        ws.column_dimensions["D"].width = 8
+        ws.column_dimensions["E"].width = 20
         ws.column_dimensions["F"].width = 18
-        ws.column_dimensions["G"].width = 15
+        ws.column_dimensions["G"].width = 18
+        ws.column_dimensions["H"].width = 15
         _upload_excel(dbx, wb, INVOICE_ADDRESS_FILE)
         log("📋  Adressen.xlsx neu angelegt")
         return wb
@@ -728,9 +729,9 @@ def find_in_address_excel(dbx: dropbox.Dropbox, name: str) -> dict | None:
         ws         = wb.active
         name_lower = name.strip().lower()
         for row in ws.iter_rows(min_row=2, values_only=True):
-            if row[0] and str(row[0]).strip().lower() == name_lower:
-                return {"name": row[0], "strasse_nr": row[1], "plz": str(row[2]), "ort": row[3],
-                        "anrede": str(row[7] or "").strip() if len(row) > 7 else ""}
+            if row[1] and str(row[1]).strip().lower() == name_lower:
+                return {"anrede": str(row[0] or "").strip(), "name": row[1],
+                        "strasse_nr": row[2], "plz": str(row[3] or ""), "ort": row[4]}
     except Exception as e:
         log(f"⚠️  Adressliste lesen: {e}")
     return None
@@ -743,9 +744,9 @@ def add_to_address_excel(dbx: dropbox.Dropbox, name: str, strasse: str,
         wb          = _ensure_address_excel(dbx)
         ws          = wb.active
         street_val  = "Korrigiert" if street_corrected else ("Ja" if street_ok else "Nein")
-        ws.append([name, strasse, plz, ort,
+        ws.append([anrede, name, strasse, plz, ort,
                    street_val, "Ja" if location_ok else "Nein",
-                   datetime.now().strftime("%Y-%m-%d"), anrede])
+                   datetime.now().strftime("%Y-%m-%d")])
         _upload_excel(dbx, wb, INVOICE_ADDRESS_FILE)
         log(f"📋  Adresse hinzugefügt: {name}")
     except Exception as e:
@@ -1377,14 +1378,14 @@ def kargl_adressen_list():
         ws = wb.active
         adressen = []
         for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if any(cell is not None and str(cell).strip() for cell in row[:4]):
+            if any(cell is not None and str(cell).strip() for cell in row[:5]):
                 adressen.append({
                     "row":    i,
-                    "name":   str(row[0] or "").strip(),
-                    "strasse":str(row[1] or "").strip(),
-                    "plz":    str(row[2] or "").strip(),
-                    "ort":    str(row[3] or "").strip(),
-                    "anrede": str(row[7] or "").strip() if len(row) > 7 else "",
+                    "anrede": str(row[0] or "").strip(),
+                    "name":   str(row[1] or "").strip(),
+                    "strasse":str(row[2] or "").strip(),
+                    "plz":    str(row[3] or "").strip(),
+                    "ort":    str(row[4] or "").strip(),
                 })
         return {"adressen": adressen}
     except Exception as e:
@@ -1400,11 +1401,11 @@ def kargl_adressen_update(row):
     try:
         wb = _ensure_address_excel(dbx)
         ws = wb.active
-        ws.cell(row=row, column=1).value = body.get("name", "")
-        ws.cell(row=row, column=2).value = body.get("strasse", "")
-        ws.cell(row=row, column=3).value = body.get("plz", "")
-        ws.cell(row=row, column=4).value = body.get("ort", "")
-        ws.cell(row=row, column=8).value = body.get("anrede", "")
+        ws.cell(row=row, column=1).value = body.get("anrede", "")
+        ws.cell(row=row, column=2).value = body.get("name", "")
+        ws.cell(row=row, column=3).value = body.get("strasse", "")
+        ws.cell(row=row, column=4).value = body.get("plz", "")
+        ws.cell(row=row, column=5).value = body.get("ort", "")
         _upload_excel(dbx, wb, INVOICE_ADDRESS_FILE)
         log(f"📋  Adresse aktualisiert: Zeile {row}")
         return {"ok": True}
@@ -1429,12 +1430,11 @@ def kargl_adressen_update_by_name():
         wb = _ensure_address_excel(dbx)
         ws = wb.active
         for row in ws.iter_rows(min_row=2):
-            if row[0].value and str(row[0].value).strip().lower() == name.lower():
-                row[1].value = strasse
-                row[2].value = plz
-                row[3].value = ort
-                if len(row) >= 8:
-                    row[7].value = anrede
+            if row[1].value and str(row[1].value).strip().lower() == name.lower():
+                row[0].value = anrede
+                row[2].value = strasse
+                row[3].value = plz
+                row[4].value = ort
                 _upload_excel(dbx, wb, INVOICE_ADDRESS_FILE)
                 log(f"📋  Adresse aktualisiert (by name): {name}")
                 return {"ok": True}
