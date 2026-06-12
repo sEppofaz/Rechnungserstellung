@@ -556,6 +556,7 @@
   <div class="form-actions">
     <button class="btn btn-primary" id="confirm-btn" onclick="confirmInvoice()">Rechnung erstellen</button>
     <button class="btn btn-ghost" onclick="editNr ? (loadRechnungen(), _resetEditMode()) : goMain()">Abbrechen</button>
+    <button class="btn btn-ghost" id="btn-rechnungsordner-link" style="display:none" onclick="_resetEditMode(); loadRechnungen()">&#8592; Rechnungsordner</button>
     <div id="form-err" class="err"></div>
   </div>
 </div>
@@ -613,6 +614,14 @@
   <div class="modal-sheet">
     <div class="modal-title">Adresse bearbeiten</div>
     <input type="hidden" id="ae-row">
+    <div>
+      <div class="modal-label" style="margin-bottom:6px">Anrede</div>
+      <select id="ae-anrede" style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:10px;font-size:15px;background:#fff">
+        <option value="Firma">Firma</option>
+        <option value="Herr">Herr</option>
+        <option value="Frau">Frau</option>
+      </select>
+    </div>
     <div>
       <div class="modal-label" style="margin-bottom:6px">Name</div>
       <input type="text" id="ae-name" placeholder="Name / Firma">
@@ -1034,6 +1043,19 @@
       }
       _resetEditMode();
       show('success');
+
+      // Adress-Änderung erkennen und nachfragen
+      if (d.address_differs) {
+        const diff = d.address_differs;
+        const msg = `Adresse für „${diff.name}" wurde manuell geändert.\n\nAlt: ${diff.old.strasse_nr}, ${diff.old.plz} ${diff.old.ort}\nNeu: ${diff.new.strasse_nr}, ${diff.new.plz} ${diff.new.ort}\n\nAdressliste überschreiben?`;
+        if (confirm(msg)) {
+          fetch(`${API}/kargl/api/adressen/update-by-name`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({name: diff.name, ...diff.new})
+          }).catch(() => {});
+        }
+      }
     } catch(e) {
       setErr('form-err', 'Verbindungsfehler: ' + e.message);
       btn.disabled = false; btn.textContent = 'Rechnung erstellen';
@@ -1081,7 +1103,7 @@
     } catch(e) {
       if (e.name !== 'AbortError') window.open(currentPdfUrl, '_blank');
     } finally {
-      btn.textContent = 'Teilen';
+      btn.textContent = 'Teilen / Drucken';
       btn.disabled = false;
     }
   }
@@ -1101,6 +1123,7 @@
     const nr = document.getElementById('f-rechnungsnummer');
     nr.readOnly = false; nr.style.opacity = '1';
     document.getElementById('confirm-btn').textContent = 'Rechnung erstellen';
+    document.getElementById('btn-rechnungsordner-link').style.display = 'none';
   }
 
   function setErr(id, msg) {
@@ -1137,7 +1160,7 @@
     el.innerHTML = list.map((a, i) => `
       <div class="addr-card">
         <div class="addr-info">
-          <div class="addr-name">${esc(a.name)}</div>
+          <div class="addr-name">${esc(a.anrede || 'Firma')} ${esc(a.name)}</div>
           <div class="addr-detail">${esc(a.strasse)}, ${esc(a.plz)} ${esc(a.ort)}</div>
         </div>
         <button class="addr-edit-btn" onclick="editAddrByIdx(${i})">Bearbeiten</button>
@@ -1176,6 +1199,7 @@
     currentAddrIdx = idx;
     const a = addrData[idx];
     document.getElementById('ae-row').value    = a.row;
+    document.getElementById('ae-anrede').value = a.anrede || 'Firma';
     document.getElementById('ae-name').value   = a.name;
     document.getElementById('ae-strasse').value = a.strasse;
     document.getElementById('ae-plz').value    = a.plz;
@@ -1197,6 +1221,7 @@
       strasse: document.getElementById('ae-strasse').value.trim(),
       plz:     document.getElementById('ae-plz').value.trim(),
       ort:     document.getElementById('ae-ort').value.trim(),
+      anrede:  document.getElementById('ae-anrede').value,
     };
     const btn = document.getElementById('ae-save-btn');
     btn.disabled = true; btn.textContent = 'Speichern…';
@@ -1211,7 +1236,7 @@
       if (!r.ok) { setErr('ae-err', d.error || 'Fehler'); btn.disabled = false; btn.textContent = 'Speichern'; return; }
       // Lokale Liste aktualisieren
       const idx = addrData.findIndex(a => a.row === row);
-      if (idx >= 0) addrData[idx] = { ...addrData[idx], ...payload };
+      if (idx >= 0) addrData[idx] = { ...addrData[idx], ...payload, strasse: payload.strasse };
       renderAdressen(addrData);
       closeAddrModal();
     } catch(e) {
@@ -1259,6 +1284,7 @@
       nrField.style.opacity = '0.6';
       document.getElementById('confirm-btn').textContent = 'Rechnung aktualisieren';
       document.getElementById('form-sub').textContent = 'Felder prüfen und bearbeiten';
+      document.getElementById('btn-rechnungsordner-link').style.display = 'block';
       show('form');
     } catch(e) {
       show('rechnungen');

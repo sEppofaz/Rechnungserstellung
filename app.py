@@ -93,7 +93,7 @@ _SELLER = {
     "payment_days":  8,
 }
 
-_ADDR_HEADERS = ["Name", "Straße", "PLZ", "Ort", "Straße validiert", "PLZ+Ort validiert", "Hinzugefügt"]
+_ADDR_HEADERS = ["Name", "Straße", "PLZ", "Ort", "Straße validiert", "PLZ+Ort validiert", "Hinzugefügt", "Anrede"]
 _REG_HEADERS  = ["Rechnungsnummer", "Datum", "Anrede", "Nachname", "Vorname",
                  "Produkt", "Netto (€)", "MwSt (€)", "Brutto (€)"]
 
@@ -729,7 +729,8 @@ def find_in_address_excel(dbx: dropbox.Dropbox, name: str) -> dict | None:
         name_lower = name.strip().lower()
         for row in ws.iter_rows(min_row=2, values_only=True):
             if row[0] and str(row[0]).strip().lower() == name_lower:
-                return {"name": row[0], "strasse_nr": row[1], "plz": str(row[2]), "ort": row[3]}
+                return {"name": row[0], "strasse_nr": row[1], "plz": str(row[2]), "ort": row[3],
+                        "anrede": str(row[7] or "").strip() if len(row) > 7 else ""}
     except Exception as e:
         log(f"⚠️  Adressliste lesen: {e}")
     return None
@@ -737,14 +738,14 @@ def find_in_address_excel(dbx: dropbox.Dropbox, name: str) -> dict | None:
 
 def add_to_address_excel(dbx: dropbox.Dropbox, name: str, strasse: str,
                          plz: str, ort: str, street_ok: bool, location_ok: bool,
-                         street_corrected: bool = False) -> None:
+                         street_corrected: bool = False, anrede: str = "") -> None:
     try:
         wb          = _ensure_address_excel(dbx)
         ws          = wb.active
         street_val  = "Korrigiert" if street_corrected else ("Ja" if street_ok else "Nein")
         ws.append([name, strasse, plz, ort,
                    street_val, "Ja" if location_ok else "Nein",
-                   datetime.now().strftime("%Y-%m-%d")])
+                   datetime.now().strftime("%Y-%m-%d"), anrede])
         _upload_excel(dbx, wb, INVOICE_ADDRESS_FILE)
         log(f"📋  Adresse hinzugefügt: {name}")
     except Exception as e:
@@ -955,7 +956,8 @@ def enrich_invoice_address(dbx: dropbox.Dropbox, data: dict) -> dict:
 
     add_to_address_excel(dbx, name,
                          data.get("strasse_nr", strasse), data.get("plz", plz), data.get("ort", ort),
-                         addr["street_ok"], location_ok, addr["corrected"])
+                         addr["street_ok"], location_ok, addr["corrected"],
+                         anrede=data.get("anrede", ""))
     return data
 
 
@@ -1316,9 +1318,28 @@ def kargl_confirm():
         session_file.unlink(missing_ok=True)
         img_path.unlink(missing_ok=True)
 
+        # Adress-Abweichung prüfen (für Pop-up in der App)
+        address_differs = None
+        known = find_in_address_excel(dbx, name)
+        if known:
+            new_a = {"strasse_nr": fields.get("strasse_nr","").strip(),
+                     "plz": str(fields.get("plz","")).strip(),
+                     "ort": fields.get("ort","").strip(),
+                     "anrede": fields.get("anrede","").strip()}
+            old_a = {"strasse_nr": (known.get("strasse_nr") or "").strip(),
+                     "plz": str(known.get("plz","")).strip(),
+                     "ort": (known.get("ort") or "").strip(),
+                     "anrede": (known.get("anrede") or "").strip()}
+            if (new_a["strasse_nr"] != old_a["strasse_nr"] or
+                    new_a["plz"] != old_a["plz"] or
+                    new_a["ort"] != old_a["ort"] or
+                    (old_a["anrede"] and new_a["anrede"] != old_a["anrede"])):
+                address_differs = {"name": name, "old": old_a, "new": new_a}
+
         log(f"✅  App: Rechnung erstellt: {out_name}")
         return {"out_name": out_name, "rechnungsnummer": rechnungsnummer,
-                "pdf_session_id": pdf_session_id, "er_name": er_name}
+                "pdf_session_id": pdf_session_id, "er_name": er_name,
+                "address_differs": address_differs}
 
     except Exception as e:
         log(f"❌  App Confirm Fehler: {e}")
@@ -1358,11 +1379,12 @@ def kargl_adressen_list():
         for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             if any(cell is not None and str(cell).strip() for cell in row[:4]):
                 adressen.append({
-                    "row": i,
-                    "name":    str(row[0] or "").strip(),
-                    "strasse": str(row[1] or "").strip(),
-                    "plz":     str(row[2] or "").strip(),
-                    "ort":     str(row[3] or "").strip(),
+                    "row":    i,
+                    "name":   str(row[0] or "").strip(),
+                    "strasse":str(row[1] or "").strip(),
+                    "plz":    str(row[2] or "").strip(),
+                    "ort":    str(row[3] or "").strip(),
+                    "anrede": str(row[7] or "").strip() if len(row) > 7 else "",
                 })
         return {"adressen": adressen}
     except Exception as e:
@@ -1382,11 +1404,43 @@ def kargl_adressen_update(row):
         ws.cell(row=row, column=2).value = body.get("strasse", "")
         ws.cell(row=row, column=3).value = body.get("plz", "")
         ws.cell(row=row, column=4).value = body.get("ort", "")
+        ws.cell(row=row, column=8).value = body.get("anrede", "")
         _upload_excel(dbx, wb, INVOICE_ADDRESS_FILE)
         log(f"📋  Adresse aktualisiert: Zeile {row}")
         return {"ok": True}
     except Exception as e:
         log(f"⚠️  Adresse aktualisieren: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.route("/kargl/api/adressen/update-by-name", methods=["POST"])
+@require_token
+def kargl_adressen_update_by_name():
+    body = request.json or {}
+    dbx  = get_dropbox_client()
+    name    = body.get("name", "").strip()
+    strasse = body.get("strasse_nr", "").strip()
+    plz     = body.get("plz", "").strip()
+    ort     = body.get("ort", "").strip()
+    anrede  = body.get("anrede", "").strip()
+    if not name:
+        return {"error": "Name fehlt"}, 400
+    try:
+        wb = _ensure_address_excel(dbx)
+        ws = wb.active
+        for row in ws.iter_rows(min_row=2):
+            if row[0].value and str(row[0].value).strip().lower() == name.lower():
+                row[1].value = strasse
+                row[2].value = plz
+                row[3].value = ort
+                if len(row) >= 8:
+                    row[7].value = anrede
+                _upload_excel(dbx, wb, INVOICE_ADDRESS_FILE)
+                log(f"📋  Adresse aktualisiert (by name): {name}")
+                return {"ok": True}
+        return {"error": "Name nicht gefunden"}, 404
+    except Exception as e:
+        log(f"⚠️  Adresse update-by-name: {e}")
         return {"error": str(e)}, 500
 
 
@@ -1579,14 +1633,15 @@ def kargl_rechnung_felder(nr):
         if not found:
             return {"error": "Rechnungsnummer nicht im Register gefunden"}, 404
 
-        anrede   = str(found[2] or 'Firma')
-        nachname = str(found[3] or '')
-        vorname  = str(found[4] or '')
-        name     = f"{vorname} {nachname}".strip() if vorname else nachname
-        beschr   = str(found[5] or '')
-        brutto   = float(found[8]) if found[8] else 0.0
+        anrede_reg = str(found[2] or 'Firma')
+        nachname   = str(found[3] or '')
+        vorname    = str(found[4] or '')
+        name       = f"{vorname} {nachname}".strip() if vorname else nachname
+        beschr     = str(found[5] or '')
+        brutto     = float(found[8]) if found[8] else 0.0
 
         adresse = find_in_address_excel(dbx, name) or {}
+        anrede  = adresse.get("anrede") or anrede_reg
 
         fields = {
             "anrede":            anrede,
@@ -1705,8 +1760,26 @@ def kargl_rechnung_neu_erstellen(nr):
             tmp_pdf        = None
             pdf_session_id = edit_sid
 
+        address_differs = None
+        known = find_in_address_excel(dbx, name)
+        if known:
+            new_a = {"strasse_nr": fields.get("strasse_nr","").strip(),
+                     "plz": str(fields.get("plz","")).strip(),
+                     "ort": fields.get("ort","").strip(),
+                     "anrede": fields.get("anrede","").strip()}
+            old_a = {"strasse_nr": (known.get("strasse_nr") or "").strip(),
+                     "plz": str(known.get("plz","")).strip(),
+                     "ort": (known.get("ort") or "").strip(),
+                     "anrede": (known.get("anrede") or "").strip()}
+            if (new_a["strasse_nr"] != old_a["strasse_nr"] or
+                    new_a["plz"] != old_a["plz"] or
+                    new_a["ort"] != old_a["ort"] or
+                    (old_a["anrede"] and new_a["anrede"] != old_a["anrede"])):
+                address_differs = {"name": name, "old": old_a, "new": new_a}
+
         return {"out_name": out_name, "rechnungsnummer": nr,
-                "pdf_session_id": pdf_session_id, "er_name": er_name}
+                "pdf_session_id": pdf_session_id, "er_name": er_name,
+                "address_differs": address_differs}
 
     except Exception as e:
         log(f"❌  Neu-Erstellen {nr}: {e}")
