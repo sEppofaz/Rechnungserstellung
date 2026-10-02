@@ -106,7 +106,8 @@ Wird automatisch aus `_Rechnungsregister.xlsx` hochgezählt. Jahreswechsel → R
 | `{{plz}}` / `{{ort}}` | Adresse |
 | `{{datum}}` | Verarbeitungstag (TT.MM.JJJJ) |
 | `{{beschreibungstext}}` | Leistungstext vom Zettel |
-| `{{position1..6}}` | Menge (z.B. `1,66 cbm`) |
+| `{{position1..6}}` | Menge (z.B. `1,66 cbm` bzw. `1,489 cbm`) |
+| `{{position7}}` | Nur für die Summenzeile `Summe X cbm` direkt unter der letzten Position (ab 2026-10-02) |
 | `{{einzelpreis1..6}}` | Einzelpreis (z.B. `110,00 €`) |
 | `{{gesamtpreis1..6}}` | Zeilenbetrag |
 | `{{netto}}` / `{{mwst}}` / `{{brutto}}` | Beträge |
@@ -171,6 +172,8 @@ Wird automatisch aus `_Rechnungsregister.xlsx` hochgezählt. Jahreswechsel → R
 
 - **Pull-to-Refresh nur auf Listen-Screens (ab 2026-10-02, v1.0):** `PTR_SCREENS = ['main','adressen','rechnungen']` in `kargl_app.html`. Vorher löste ein Wisch nach unten im Formular `location.reload()` aus → Scan-Ergebnis weg, Nutzer landet auf dem Startbildschirm (wirkte wie ein „Rauswurf“). Neue Screens mit ungespeicherten Eingaben **nicht** in `PTR_SCREENS` aufnehmen. Noch offen/bekannt: Formular wird nicht zwischengespeichert – verwirft iOS die PWA im Hintergrund, ist der Scan ebenfalls weg.
 - **„Rauswurf“-Diagnose:** nginx-Access-Log nach `/kargl/` filtern (Query-Strings abschneiden – PDF-URLs enthalten `?token=`). `GET /kargl/` + `POST /api/auth 200` direkt nach `/api/ocr` = Reload, kein Token-Problem.
+
+- **cbm-Nachkommastellen + Summe (ab 2026-10-02, v1.1):** `cbm_stellen()` → 3 Stellen für **alle** cbm-Positionen, sobald eine 3 Stellen hat, sonst 2. Ab 2 cbm-Positionen setzt `build_docx()` `Summe X cbm` in `position{n+1}`; dafür gibt es im Template den Absatz `{{ position7 }}` (nur Spalte 1, ohne Preis). Gerechnet wurde schon vorher mit voller Genauigkeit, nur die Anzeige rundete. Mengenfeld im Formular: `step="0.001"`. Template-Backups: `VORL_Rechnungsformular 2026_BACKUP_20261002.dotx`, `template_BACKUP_20261002.docx`, Server `template.docx.bak_20261002`.
 
 ---
 
