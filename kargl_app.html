@@ -465,6 +465,7 @@
       <h3>Bearbeiten-Modus</h3>
       <p>Im Rechnungsordner (status „Entwurf") → Bearbeiten: Felder anpassen und Rechnung neu erstellen. Über den Button „Rechnungsordner" springst du direkt zurück ohne zu speichern.</p>
       <button class="btn-logout" onclick="doLogout()">Abmelden</button>
+      <p style="text-align:center;font-size:.75rem;color:var(--text2);margin-top:16px">Version 1.0 · 2026-10-02 · a sEpp-App</p>
     </div>
   </div>
 </div>
@@ -1452,10 +1453,13 @@
   });
 
   // ── Pull-to-Refresh ──
+  // Nur auf Listen-Screens: im Formular/PDF/Loading würde ein Reload den Scan verwerfen
+  const PTR_SCREENS = ['main','adressen','rechnungen'];
   const ptrEl = document.getElementById('ptr');
   let ptrY = 0, ptrActive = false;
   document.addEventListener('touchstart', e => {
-    if (window.scrollY === 0) { ptrY = e.touches[0].clientY; ptrActive = true; }
+    const onPtrScreen = PTR_SCREENS.some(n => !document.getElementById(`s-${n}`).classList.contains('hidden'));
+    if (onPtrScreen && window.scrollY === 0) { ptrY = e.touches[0].clientY; ptrActive = true; }
   }, {passive: true});
   document.addEventListener('touchmove', e => {
     if (!ptrActive) return;
