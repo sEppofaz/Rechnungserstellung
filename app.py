@@ -617,8 +617,13 @@ def fmt_eur(value: float) -> str:
     return f"{formatted} €"
 
 
-def fmt_cbm(value: float) -> str:
-    return f"{value:.2f}".replace(".", ",") + " cbm"
+def fmt_cbm(value: float, stellen: int = 2) -> str:
+    return f"{value:.{stellen}f}".replace(".", ",") + " cbm"
+
+
+def cbm_stellen(mengen: list) -> int:
+    """3 Nachkommastellen für alle cbm-Positionen, sobald eine sie braucht (wie auf dem Zettel)."""
+    return 3 if any(round(m * 100, 6) != round(m * 100) for m in mengen) else 2
 
 
 # ── DOCX-Erstellung ───────────────────────────────────────────────────────────
@@ -628,8 +633,11 @@ def build_docx(data: dict, calc: dict, rechnungsnummer: str = "") -> str:
     positionen = [p for p in (data.get("positionen") or [])
                   if (p.get("menge") or p.get("menge_cbm")) and p.get("einzelpreis")]
 
-    pos_context = {}
+    pos_context = {"position7": ""}
     if positionen:
+        cbm_mengen = [p.get("menge") or p.get("menge_cbm") for p in positionen
+                      if (p.get("einheit") or "cbm") == "cbm"]
+        stellen    = cbm_stellen(cbm_mengen)
         for i in range(1, 7):
             if i <= len(positionen):
                 p            = positionen[i - 1]
@@ -638,7 +646,7 @@ def build_docx(data: dict, calc: dict, rechnungsnummer: str = "") -> str:
                 pos_zusatz   = p.get("positions_beschreibung", "") or ""
                 zeilen_netto = round(menge * p["einzelpreis"], 2)
                 if einheit == "cbm":
-                    pos_str = fmt_cbm(menge)
+                    pos_str = fmt_cbm(menge, stellen)
                 elif menge == int(menge):
                     pos_str = f"{int(menge)} {einheit}"
                 else:
@@ -652,6 +660,9 @@ def build_docx(data: dict, calc: dict, rechnungsnummer: str = "") -> str:
                 pos_context[f"position{i}"]    = ""
                 pos_context[f"einzelpreis{i}"] = ""
                 pos_context[f"gesamtpreis{i}"] = ""
+        # Summenzeile direkt unter der letzten Position (Template hat dafür {{ position7 }})
+        if len(cbm_mengen) >= 2 and len(positionen) <= 6:
+            pos_context[f"position{len(positionen) + 1}"] = "Summe " + fmt_cbm(sum(cbm_mengen), stellen)
     else:
         pos_context["position1"]    = ""
         pos_context["einzelpreis1"] = ""

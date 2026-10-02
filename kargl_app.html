@@ -457,6 +457,8 @@
       <p>Toggle im Formular aktivieren → zusätzlich zur ODT wird eine maschinenlesbare ZUGFeRD-PDF (*_eRechnung_*.pdf) in Dropbox abgelegt. Einstellung bleibt gespeichert.</p>
       <h3>Zugangscode</h3>
       <p>Einmalig beim ersten Start eingeben. Der Code wird gespeichert – danach kein erneutes Einloggen nötig.</p>
+      <h3>Mengen (cbm)</h3>
+      <p>Mengen werden wie auf dem Zettel übernommen, bis zu 3 Nachkommastellen. Hat eine Position 3 Stellen, stehen alle cbm-Positionen der Rechnung mit 3 Stellen da. Ab 2 cbm-Positionen erscheint darunter die Summe der cbm.</p>
       <h3>Ausgabe</h3>
       <p>Fertige Rechnung liegt in Dropbox unter <em>Rechnungen_Entwurf/</em> als .odt-Datei. Optional zusätzlich als ZUGFeRD-PDF.</p>
       <h3>Adressdatenbank</h3>
@@ -465,7 +467,7 @@
       <h3>Bearbeiten-Modus</h3>
       <p>Im Rechnungsordner (status „Entwurf") → Bearbeiten: Felder anpassen und Rechnung neu erstellen. Über den Button „Rechnungsordner" springst du direkt zurück ohne zu speichern.</p>
       <button class="btn-logout" onclick="doLogout()">Abmelden</button>
-      <p style="text-align:center;font-size:.75rem;color:var(--text2);margin-top:16px">Version 1.0 · 2026-10-02 · a sEpp-App</p>
+      <p style="text-align:center;font-size:.75rem;color:var(--text2);margin-top:16px">Version 1.1 · 2026-10-02 · a sEpp-App</p>
     </div>
   </div>
 </div>
@@ -911,7 +913,7 @@
         <button class="pos-del" type="button" onclick="delPos(${id})">✕</button>
       </div>
       <div class="pos-row">
-        <input type="number" id="pm-${id}" placeholder="Menge"   step="0.01" oninput="updateCalc()">
+        <input type="number" id="pm-${id}" placeholder="Menge"   step="0.001" oninput="updateCalc()">
         <input type="text"   id="pe-${id}" placeholder="cbm"      style="text-align:center" value="cbm">
         <input type="number" id="pp-${id}" placeholder="Preis €" step="0.01" oninput="updateCalc()">
       </div>
