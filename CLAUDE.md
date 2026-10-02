@@ -152,7 +152,6 @@ Wird automatisch aus `_Rechnungsregister.xlsx` hochgezählt. Jahreswechsel → R
 - **Kein shared-Import:** `app.py` ist vollständig standalone – `MEDIA_TYPES`, `log` etc. sind direkt definiert, kein Import aus Vereinskalender
 - **template.docx liegt außerhalb git** – bei Änderungen an `.dotx` konvertieren und per scp deployen (kein Service-Restart nötig)
 - **Cursor liegt außerhalb git** – `invoice_cursor.txt` unter `/opt/kargl-invoice/`, nicht unter `/src/`
-- **Claude-Antwort manchmal in Markdown-Backticks** – Code strippt ` ```json ``` ` vor `json.loads()`
 - **Adresse bekannter Kunde** → wird aus `_Adressen.xlsx` übernommen, kein Nominatim-Aufruf
 - **`[BITTE PRÜFEN]`** erscheint im Dokument wenn: Adresse korrigiert, Adresse nicht verifiziert, Rechenabweichung >0,02 €
 - **nginx `sites-enabled` ist eine Kopie, kein Symlink** – Änderungen an `sites-available/rename-webhook` müssen immer mit `cp sites-available/rename-webhook sites-enabled/rename-webhook` übernommen werden, sonst bleibt nginx auf dem alten Stand
@@ -175,6 +174,12 @@ Wird automatisch aus `_Rechnungsregister.xlsx` hochgezählt. Jahreswechsel → R
 
 - **cbm-Nachkommastellen + Summe (ab 2026-10-02, v1.1):** `cbm_stellen()` → 3 Stellen für **alle** cbm-Positionen, sobald eine 3 Stellen hat, sonst 2. Ab 2 cbm-Positionen setzt `build_docx()` `Summe X cbm` in `position{n+1}`; dafür gibt es im Template den Absatz `{{ position7 }}` (nur Spalte 1, ohne Preis). Gerechnet wurde schon vorher mit voller Genauigkeit, nur die Anzeige rundete. Mengenfeld im Formular: `step="0.001"`. Template-Backups: `VORL_Rechnungsformular 2026_BACKUP_20261002.dotx`, `template_BACKUP_20261002.docx`, Server `template.docx.bak_20261002`.
 
+- **OCR-Aufruf (ab 2026-10-02, v1.2):** `client.beta.messages.create` mit `claude-opus-5-5`, `thinking: adaptive`, `effort: high`, Structured Outputs (`_OCR_SCHEMA`, Einheit als Enum `_EINHEITEN`), `fallbacks="default"` + Beta `server-side-fallback-2026-07-01`. Kein Backtick-Stripping mehr nötig. `refusal`/`max_tokens` → ValueError. Log-Zeile `🤖 OCR <modell>: Xs, N in / M out` für Dauer und Tokens. Kosten geschätzt 5–8 Cent/Scan (vorher ~2 Cent mit Sonnet 4.6 ohne Denken). Anlass: Sonnet 4.6 ohne Denken las „1 St. Schneefangstange 5 m“ als Menge 1 + Einheit „5 m“.
+- **`_normalize_positionen()`:** Absicherung – Einheit, die mit Ziffer beginnt (Maßangabe), wandert in den Zusatz, Einheit wird `St.`. Mit dem Enum-Schema eigentlich nicht mehr erreichbar, bleibt als zweite Linie (z. B. bei Modellwechsel per Env-Variable).
+- **gunicorn-Timeout 120 s über `src/gunicorn.conf.py`** (wird automatisch geladen, WorkingDirectory = `src/`). Vorher galt der Standard 30 s; Opus mit Denken kann länger brauchen. nginx `/kargl/` wartet ebenfalls 120 s, SDK-Timeout 100 s. Prüfen: `cd /opt/kargl-invoice/src && /opt/kargl-invoice/bin/gunicorn --print-config app:app | grep ^timeout`.
+- **Namensreihenfolge:** Rechnung und Register erwarten „Vorname Nachname“ (Josef bestätigt 2026-10-02). Die alte OCR lieferte oft „Nachname Vorname“ wie auf dem Zettel, deshalb stehen alte Einträge in `_Adressen.xlsx` und im Register teils verdreht. `find_in_address_excel()` und `update-by-name` vergleichen deshalb reihenfolgeunabhängig (sortierte Wörter); `update-by-name` schreibt dabei den Namen in der neuen Reihenfolge zurück.
+- **OCR testen ohne App:** Das Testskript braucht `CLAUDE_API_KEY` → nur Josef startet es, per `systemd-run --wait --pipe --collect -p EnvironmentFile=/etc/pka/secrets.env <python> <skript>` (Claude liest secrets.env nicht). **Vorher immer trocken mit einer Fake-`anthropic`-Attrappe über `PYTHONPATH` laufen lassen** – am 2026-10-02 fehlte im Testrahmen `datetime`, die Log-Zeile nach dem API-Aufruf crashte, 3 bezahlte Aufrufe gingen verloren.
+
 ---
 
 ## Häufige Änderungen
@@ -195,7 +200,7 @@ mwst = round(netto * 0.19, 2)
 ### Modell wechseln (ohne Code-Änderung)
 In `/etc/pka/secrets.env` (Josef fragen):
 ```
-CLAUDE_INVOICE_MODEL=claude-opus-4-7
+CLAUDE_INVOICE_MODEL=claude-opus-5-5
 ```
 
 ---
@@ -260,4 +265,4 @@ Niemals direkt lesen – Josef fragen. Benötigte Keys:
 - `DROPBOX_INVOICE_REFRESH_TOKEN`, `DROPBOX_INVOICE_APP_KEY`, `DROPBOX_INVOICE_APP_SECRET`
 - `CLAUDE_API_KEY`
 - `KARGL_APP_TOKEN` – Zugangscode für die Review-App (Josef + Sandra)
-- Optional: `CLAUDE_INVOICE_MODEL` (Default: `claude-sonnet-4-6`)
+- Optional: `CLAUDE_INVOICE_MODEL` (Default: `claude-opus-5-5`, seit 2026-10-02; Stand 2026-10-02 nicht in secrets.env gesetzt)
