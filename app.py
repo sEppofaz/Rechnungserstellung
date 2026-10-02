@@ -94,7 +94,7 @@ _SELLER = {
 }
 
 _ADDR_HEADERS = ["Anrede", "Name", "Straße", "PLZ", "Ort", "Straße validiert", "PLZ+Ort validiert", "Hinzugefügt"]
-_REG_HEADERS  = ["Rechnungsnummer", "Datum", "Anrede", "Nachname", "Vorname",
+_REG_HEADERS  = ["Rechnungsnummer", "Datum", "Anrede", "Vorname", "Nachname",
                  "Produkt", "Netto (€)", "MwSt (€)", "Brutto (€)"]
 
 
@@ -513,6 +513,8 @@ def extract_invoice_data(file_path: str, suffix: str) -> dict:
         "}\n\n"
         "Hinweise:\n"
         "- name: das ist IMMER der handgeschriebene Kundenname – niemals 'Kargl' oder 'Reinhard'\n"
+        "- name bei Personen IMMER als 'Vorname Nachname' – auf dem Zettel steht meist 'Nachname Vorname' "
+        "(z.B. 'Müller Julian' → 'Julian Müller'), dann umstellen. Firmennamen exakt wie geschrieben.\n"
         "- anrede: 'Firma' wenn GbR, GmbH, AG o.ä., sonst 'Herr' oder 'Frau'\n"
         "- positionen: ein Eintrag pro Zeile auf dem Zettel, wenn Menge UND Einzelpreis angegeben sind. "
         "Einzelpreis-Indikatoren auf dem Zettel: 'à X', '@ X', 'a X', '/ X', 'je X', 'pro X' – "
@@ -887,7 +889,7 @@ def save_to_invoice_register(dbx: dropbox.Dropbox, rechnungsnummer: str,
         beschreibung = (data.get("beschreibungstext") or "")[:500]
         ws.append([
             rechnungsnummer, datetime.now().strftime("%d.%m.%Y"),
-            anrede, nachname, vorname, beschreibung,
+            anrede, vorname, nachname, beschreibung,  # Spalten D=Vorname, E=Nachname (Firma → E)
             round(calc["netto"], 2), round(calc["mwst"], 2), round(calc["brutto"], 2),
         ])
         _upload_excel(dbx, wb, INVOICE_REGISTER_FILE)
@@ -1559,8 +1561,8 @@ def kargl_rechnungen_list():
                     "nr":           str(row[0] or ""),
                     "datum":        str(row[1] or ""),
                     "anrede":       str(row[2] or ""),
-                    "nachname":     str(row[3] or ""),
-                    "vorname":      str(row[4] or ""),
+                    "vorname":      str(row[3] or ""),
+                    "nachname":     str(row[4] or ""),
                     "beschreibung": str(row[5] or ""),
                     "brutto":       float(row[8]) if row[8] else 0,
                     "status":       "unknown",
@@ -1701,8 +1703,8 @@ def kargl_rechnung_felder(nr):
             return {"error": "Rechnungsnummer nicht im Register gefunden"}, 404
 
         anrede_reg = str(found[2] or 'Firma')
-        nachname   = str(found[3] or '')
-        vorname    = str(found[4] or '')
+        vorname    = str(found[3] or '')
+        nachname   = str(found[4] or '')
         name       = f"{vorname} {nachname}".strip() if vorname else nachname
         beschr     = str(found[5] or '')
         brutto     = float(found[8]) if found[8] else 0.0
@@ -1746,8 +1748,8 @@ def _update_invoice_register(dbx: dropbox.Dropbox, nr: str, data: dict, calc: di
             if str(row[0].value or '').strip() == nr:
                 row[1].value = datetime.now().strftime("%d.%m.%Y")
                 row[2].value = anrede
-                row[3].value = nachname
-                row[4].value = vorname
+                row[3].value = vorname
+                row[4].value = nachname
                 row[5].value = beschreibung
                 row[6].value = round(calc["netto"], 2)
                 row[7].value = round(calc["mwst"], 2)
