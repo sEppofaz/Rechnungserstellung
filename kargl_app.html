@@ -452,7 +452,7 @@
     </div>
     <div id="info-body">
       <h3>Wie funktioniert die App?</h3>
-      <p>Handgeschriebenen Rechnungszettel fotografieren → Claude liest alle Felder aus → du prüfst und korrigierst → Rechnung wird als ODT-Datei in Dropbox (Rechnungen_Entwurf/) abgelegt.</p>
+      <p>Handgeschriebenen Rechnungszettel fotografieren → Claude (Opus 5.5, prüft Mengen × Preise gegen die Summen) liest alle Felder aus → du prüfst und korrigierst → Rechnung wird als ODT-Datei in Dropbox (Rechnungen_Entwurf/) abgelegt.</p>
       <h3>E-Rechnung (ZUGFeRD)</h3>
       <p>Toggle im Formular aktivieren → zusätzlich zur ODT wird eine maschinenlesbare ZUGFeRD-PDF (*_eRechnung_*.pdf) in Dropbox abgelegt. Einstellung bleibt gespeichert.</p>
       <h3>Zugangscode</h3>
@@ -467,7 +467,7 @@
       <h3>Bearbeiten-Modus</h3>
       <p>Im Rechnungsordner (status „Entwurf") → Bearbeiten: Felder anpassen und Rechnung neu erstellen. Über den Button „Rechnungsordner" springst du direkt zurück ohne zu speichern.</p>
       <button class="btn-logout" onclick="doLogout()">Abmelden</button>
-      <p style="text-align:center;font-size:.75rem;color:var(--text2);margin-top:16px">Version 1.1 · 2026-10-02 · a sEpp-App</p>
+      <p style="text-align:center;font-size:.75rem;color:var(--text2);margin-top:16px">Version 1.2 · 2026-10-02 · a sEpp-App</p>
     </div>
   </div>
 </div>
@@ -844,7 +844,7 @@
 
   async function runOcr(file) {
     show('loading');
-    document.getElementById('loading-txt').textContent = 'Zettel wird ausgelesen…';
+    document.getElementById('loading-txt').textContent = 'Zettel wird ausgelesen… (bis ca. 30 Sek.)';
     const fd = new FormData(); fd.append('file', file);
     try {
       const r = await fetch(`${API}/kargl/api/ocr`, {

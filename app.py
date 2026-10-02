@@ -53,7 +53,7 @@ DROPBOX_INVOICE_REFRESH_TOKEN = os.environ["DROPBOX_INVOICE_REFRESH_TOKEN"]
 DROPBOX_INVOICE_APP_KEY       = os.environ["DROPBOX_INVOICE_APP_KEY"]
 DROPBOX_INVOICE_APP_SECRET    = os.environ["DROPBOX_INVOICE_APP_SECRET"]
 CLAUDE_API_KEY                = os.environ["CLAUDE_API_KEY"]
-INVOICE_MODEL                 = os.environ.get("CLAUDE_INVOICE_MODEL", "claude-sonnet-4-6")
+INVOICE_MODEL                 = os.environ.get("CLAUDE_INVOICE_MODEL", "claude-opus-5-5")
 KARGL_APP_TOKEN               = os.environ.get("KARGL_APP_TOKEN", "")
 
 INVOICE_INPUT_FOLDER  = "/_Austauschordner-Sandra-sEpp/Kargl-Rechnung/Rechnungen_Input"
@@ -477,9 +477,14 @@ def extract_invoice_data(file_path: str, suffix: str) -> dict:
         "(3) PLZ und Ort passen geografisch nicht zusammen. "
         "address_uncertain=false wenn die Adresse klar lesbar und geografisch plausibel ist – "
         "auch wenn die Handschrift etwas schwer lesbar war aber eindeutig entzifferbar.\n\n"
-        "WICHTIG: Berechne KEINE Summen selbst. Lies nur die Rohdaten vom Zettel ab.\n\n"
-        "Gib AUSSCHLIESSLICH ein valides JSON-Objekt zurück – keinen weiteren Text, "
-        "keine Erklärungen, keine Markdown-Backticks."
+        "MENGEN UND PREISE – Plausibilität prüfen:\n"
+        "Trage die Werte so ein, wie sie auf dem Zettel stehen (Mengen mit allen Nachkommastellen, "
+        "z.B. 1,489 cbm → 1.489). Prüfe vor der Antwort, ob Menge × Einzelpreis zu den Beträgen "
+        "auf dem Zettel passt. Passt es nicht, hast du vermutlich Menge, Einheit und Maßangabe "
+        "verwechselt – lies die Zeile dann noch einmal.\n"
+        "Beispiel Stückware: '1 St. Schneefangstange 5 m à 50,–' → menge 1, einheit 'St.', "
+        "einzelpreis 50.00, positions_beschreibung 'Schneefangstange 5 m'. "
+        "Die Länge '5 m' ist eine Maßangabe des Artikels, KEINE Einheit und KEINE Menge."
     )
 
     user_prompt = (
@@ -512,9 +517,10 @@ def extract_invoice_data(file_path: str, suffix: str) -> dict:
         "- positionen: ein Eintrag pro Zeile auf dem Zettel, wenn Menge UND Einzelpreis angegeben sind. "
         "Einzelpreis-Indikatoren auf dem Zettel: 'à X', '@ X', 'a X', '/ X', 'je X', 'pro X' – "
         "der Wert nach diesem Zeichen ist immer der einzelpreis (Preis pro Einheit). "
-        "Einheit übernehmen wie auf dem Zettel (z.B. 'cbm', 'St.', 'lfm', 'fm'). "
-        "positions_beschreibung: zusätzliche Spezifikationen der Position (z.B. '9m, 20-22 cm Zopf', "
-        "'4m lang', '30x50 mm') – leer lassen wenn keine vorhanden. "
+        "einheit: die Abrechnungseinheit, auf die sich der Einzelpreis bezieht ('cbm', 'St.' für Stück/Stk/St, "
+        "'lfm', 'm', 'fm', 'm²', 'Std.', 'pauschal'). "
+        "positions_beschreibung: Artikel und Spezifikationen der Position (z.B. 'Schneefangstange 5 m', "
+        "'9m, 20-22 cm Zopf', '4m lang', '30x50 mm', 'LS 18.05.26') – leer lassen wenn keine vorhanden. "
         "Wenn KEIN Einzelpreis angegeben ist (nur ein Gesamtbetrag ohne Mengenangabe): positionen = []\n"
         "- netto_auf_zettel / mwst_auf_zettel / brutto_auf_zettel: alle auf dem Zettel notierten "
         "Beträge eintragen (null wenn nicht lesbar/vorhanden)\n"
@@ -541,38 +547,81 @@ def extract_invoice_data(file_path: str, suffix: str) -> dict:
     else:
         file_content = {"type": "image",    "source": {"type": "base64", "media_type": media_type, "data": data}}
 
-    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-    raw    = None
-    for attempt in range(1, 4):
-        try:
-            message = client.messages.create(
-                model=INVOICE_MODEL,
-                max_tokens=1024,
-                system=system_prompt,
-                messages=[{"role": "user", "content": [file_content, {"type": "text", "text": user_prompt}]}],
-            )
-            raw = message.content[0].text.strip()
-            break
-        except anthropic.APIStatusError as e:
-            if e.status_code == 529 and attempt < 3:
-                wait = attempt * 15
-                log(f"⏳  API überlastet (Versuch {attempt}/3) – warte {wait}s ...")
-                time.sleep(wait)
-            else:
-                raise
+    # Timeout unter nginx (120 s) und gunicorn (gunicorn.conf.py), SDK wiederholt 429/5xx/529 selbst
+    client  = anthropic.Anthropic(api_key=CLAUDE_API_KEY, timeout=100, max_retries=2)
+    t0      = time.time()
+    message = client.beta.messages.create(
+        model=INVOICE_MODEL,
+        max_tokens=16000,
+        system=system_prompt,
+        messages=[{"role": "user", "content": [file_content, {"type": "text", "text": user_prompt}]}],
+        thinking={"type": "adaptive"},
+        output_config={"effort": "high", "format": {"type": "json_schema", "schema": _OCR_SCHEMA}},
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+    )
+    u = message.usage
+    log(f"🤖  OCR {message.model}: {time.time() - t0:.0f}s, {u.input_tokens} in / {u.output_tokens} out")
 
-    if "```" in raw:
-        match = re.search(r"```(?:json)?\s*([\s\S]+?)```", raw)
-        raw = match.group(1).strip() if match else raw
+    if message.stop_reason == "refusal":
+        raise ValueError("Claude hat den Zettel nicht verarbeitet (refusal)")
+    if message.stop_reason == "max_tokens":
+        raise ValueError("Claude-Antwort abgeschnitten (max_tokens)")
 
+    raw = next((b.text for b in message.content if b.type == "text"), "").strip()
     if not raw:
         raise ValueError("Claude hat eine leere Antwort geliefert")
+    return _normalize_positionen(json.loads(raw))
 
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        log(f"⚠️  Claude-Antwort (kein JSON): {raw[:300]}")
-        raise
+
+_EINHEITEN = ["cbm", "St.", "lfm", "m", "fm", "m²", "Std.", "pauschal"]
+
+_OCR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "anrede":            {"type": "string", "enum": ["Firma", "Herr", "Frau"]},
+        "name":              {"type": "string"},
+        "strasse_nr":        {"type": "string"},
+        "plz":               {"type": "string"},
+        "ort":               {"type": "string"},
+        "address_uncertain": {"type": "boolean"},
+        "beschreibungstext": {"type": "string"},
+        "positionen": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "menge":                  {"type": "number"},
+                    "einheit":                {"type": "string", "enum": _EINHEITEN},
+                    "einzelpreis":            {"type": "number"},
+                    "positions_beschreibung": {"type": "string"},
+                },
+                "required": ["menge", "einheit", "einzelpreis", "positions_beschreibung"],
+                "additionalProperties": False,
+            },
+        },
+        "netto_auf_zettel":  {"anyOf": [{"type": "number"}, {"type": "null"}]},
+        "mwst_auf_zettel":   {"anyOf": [{"type": "number"}, {"type": "null"}]},
+        "brutto_auf_zettel": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+        "hinweis":           {"type": "string"},
+    },
+    "required": ["anrede", "name", "strasse_nr", "plz", "ort", "address_uncertain",
+                 "beschreibungstext", "positionen", "netto_auf_zettel", "mwst_auf_zettel",
+                 "brutto_auf_zettel", "hinweis"],
+    "additionalProperties": False,
+}
+
+
+def _normalize_positionen(data: dict) -> dict:
+    """Maßangabe als Einheit ('5 m') → in den Zusatz verschieben, Einheit auf Stück setzen."""
+    for p in data.get("positionen") or []:
+        einheit = (p.get("einheit") or "").strip()
+        if einheit[:1].isdigit():
+            zusatz = (p.get("positions_beschreibung") or "").strip()
+            p["positions_beschreibung"] = f"{zusatz} {einheit}".strip()
+            p["einheit"] = "St."
+            log(f"⚠️  Einheit '{einheit}' war eine Maßangabe → Zusatz, Einheit 'St.'")
+    return data
 
 
 # ── Berechnung & Validierung ──────────────────────────────────────────────────
@@ -742,9 +791,10 @@ def find_in_address_excel(dbx: dropbox.Dropbox, name: str) -> dict | None:
     try:
         wb         = _ensure_address_excel(dbx)
         ws         = wb.active
-        name_lower = name.strip().lower()
+        # Reihenfolge egal: alte Einträge stehen teils als „Nachname Vorname“ (OCR vor 2026-10-02)
+        name_key = sorted(name.lower().split())
         for row in ws.iter_rows(min_row=2, values_only=True):
-            if row[1] and str(row[1]).strip().lower() == name_lower:
+            if row[1] and sorted(str(row[1]).lower().split()) == name_key:
                 return {"anrede": str(row[0] or "").strip(), "name": row[1],
                         "strasse_nr": row[2], "plz": str(row[3] or ""), "ort": row[4]}
     except Exception as e:
@@ -1444,8 +1494,10 @@ def kargl_adressen_update_by_name():
     try:
         wb = _ensure_address_excel(dbx)
         ws = wb.active
+        name_key = sorted(name.lower().split())
         for row in ws.iter_rows(min_row=2):
-            if row[1].value and str(row[1].value).strip().lower() == name.lower():
+            if row[1].value and sorted(str(row[1].value).lower().split()) == name_key:
+                row[1].value = name  # alte „Nachname Vorname“-Einträge auf neue Schreibweise ziehen
                 row[0].value = anrede
                 row[2].value = strasse
                 row[3].value = plz
