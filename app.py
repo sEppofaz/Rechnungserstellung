@@ -1882,5 +1882,77 @@ def kargl_leistung_update(nr):
         return {"error": str(e)}, 500
 
 
+# ── ZUGFeRD-Selbsttest beim Start ─────────────────────────────────────────────
+# Läuft nach jedem Neustart, also nach jedem Deploy und jedem pip-Update (beide starten den
+# Service neu) – genau dann, wenn sich Code oder das in factur-x mitgelieferte XSD ändern kann.
+# Nötig, weil _create_zugferd_pdf Fehler still schluckt (→ Rechnung ohne e-Rechnung).
+# Nur Fake-Daten, kein Dropbox-/API-Zugriff. Alarm per Telegram-Hauptbot (TOKEN/CHAT_ID).
+
+_SELFTEST_CASES = {
+    "Positionen": ({"name": "Selbsttest GmbH & Co", "strasse_nr": "Teststr. 1", "plz": "84092", "ort": "Bayerbach",
+                    "positionen": [{"menge": 10, "einzelpreis": 50.0, "einheit": "cbm", "positions_beschreibung": "Testholz"},
+                                   {"menge": 2, "einzelpreis": 25.0, "einheit": "Stk"}]},
+                   {"netto": 550.0, "mwst": 104.5, "brutto": 654.5}),
+    "Pauschal":   ({"name": "Selbsttest", "strasse_nr": "Testweg 2", "plz": "84028", "ort": "Landshut",
+                    "beschreibungstext": "Holzlieferung"},
+                   {"netto": 100.0, "mwst": 19.0, "brutto": 119.0}),
+}
+
+
+def _zugferd_selftest() -> list[str]:
+    """Leere Liste = OK, sonst je Fehler eine Zeile."""
+    if not _FACTURX_OK:
+        return ["factur-x lässt sich nicht importieren"]
+    from pypdf import PdfWriter
+    errors = []
+    datum = datetime(2026, 1, 15)
+    for name, (data, calc) in _SELFTEST_CASES.items():
+        try:
+            xml = _build_zugferd_xml(data, calc, "SELBSTTEST-1", datum)
+            _facturx_lib.xml_check_xsd(xml, flavor="factur-x", level="en16931")
+            with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+                w = PdfWriter()
+                w.add_blank_page(595, 842)
+                w.write(tmp)
+                tmp.flush()
+                pdf = _create_zugferd_pdf(tmp.name, data, calc, "SELBSTTEST-1", datum)
+            if not pdf:
+                errors.append(f"{name}: PDF-Erzeugung lieferte nichts")
+                continue
+            _, embedded = _facturx_lib.get_xml_from_pdf(pdf, check_xsd=False)
+            if embedded != xml:
+                errors.append(f"{name}: eingebettetes XML weicht vom erzeugten ab")
+        except Exception as e:
+            msg = str(e).split("cause of the problem:", 1)[-1].strip()  # factur-x-Vorspann weg
+            errors.append(f"{name}: {msg[:300]}")
+    return errors
+
+
+def _telegram_alert(text: str) -> None:
+    token, chat_id = os.environ.get("TOKEN", ""), os.environ.get("CHAT_ID", "")
+    if not token or not chat_id:
+        log("⚠️  Telegram-Alarm nicht möglich: TOKEN/CHAT_ID fehlen")
+        return
+    try:
+        body = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:4000]}).encode()
+        urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=body, timeout=15)
+    except Exception as e:
+        log(f"⚠️  Telegram-Alarm fehlgeschlagen: {type(e).__name__}")
+
+
+def _run_zugferd_selftest() -> None:
+    errors = _zugferd_selftest()
+    if not errors:
+        log("✅  ZUGFeRD-Selbsttest OK (XSD EN 16931, Positionen + Pauschal)")
+        return
+    log("❌  ZUGFeRD-Selbsttest FEHLGESCHLAGEN: " + " | ".join(errors))
+    _telegram_alert("❌ Kargl: ZUGFeRD-Selbsttest beim Start fehlgeschlagen – "
+                    "e-Rechnungen sind betroffen (Rechnungen selbst laufen weiter).\n\n"
+                    + "\n".join(errors) + "\n\nLog: journalctl -u kargl-invoice")
+
+
+threading.Thread(target=_run_zugferd_selftest, daemon=True).start()
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5002)
