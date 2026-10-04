@@ -126,7 +126,11 @@
     .warn-box {
       background: #451a03; border: 1px solid var(--warn); border-radius: 12px;
       padding: 12px 14px; font-size: 14px; margin-bottom: 16px;
-      display: flex; gap: 8px; line-height: 1.4;
+      display: flex; gap: 8px; line-height: 1.4; color: #fef3c7;
+    }
+    .selftest-x {
+      background: none; border: none; color: inherit; padding: 2px; margin-left: auto;
+      cursor: pointer; flex-shrink: 0; display: flex; opacity: .8;
     }
     .sec-label {
       font-size: 12px; font-weight: 600; color: var(--text2);
@@ -410,6 +414,16 @@
 
 <!-- ── MAIN ── -->
 <div id="s-main" class="screen hidden">
+  <div id="selftest-box" class="warn-box hidden" role="alert">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px">
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+      <path d="M12 9v4"/><path d="M12 17h.01"/>
+    </svg>
+    <span><b>E-Rechnung gestört.</b> Der Selbsttest beim letzten Server-Start ist fehlgeschlagen. Rechnungen werden weiter erstellt, die E-Rechnung (ZUGFeRD) fehlt aber eventuell. Details stehen im Server-Log.</span>
+    <button class="selftest-x" aria-label="Hinweis schließen" onclick="dismissSelftest()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+  </div>
   <div class="scan-card" onclick="document.getElementById('file-inp').click()">
     <div class="scan-card-icon">
       <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -455,6 +469,7 @@
       <p>Handgeschriebenen Rechnungszettel fotografieren → Claude (Opus 5.5, prüft Mengen × Preise gegen die Summen) liest alle Felder aus → du prüfst und korrigierst → Rechnung wird als ODT-Datei in Dropbox (Rechnungen_Entwurf/) abgelegt.</p>
       <h3>E-Rechnung (ZUGFeRD)</h3>
       <p>Toggle im Formular aktivieren → zusätzlich zur ODT wird eine maschinenlesbare ZUGFeRD-PDF (*_eRechnung_*.pdf) in Dropbox abgelegt. Einstellung bleibt gespeichert.</p>
+      <p>Bei jedem Server-Start prüft die App die E-Rechnung selbst. Schlägt das fehl, erscheint oben im Startbildschirm ein Hinweis (wegklickbar, kommt nach dem nächsten fehlgeschlagenen Start wieder) und der Server-Wächter meldet es per Telegram.</p>
       <h3>Zugangscode</h3>
       <p>Einmalig beim ersten Start eingeben. Der Code wird gespeichert – danach kein erneutes Einloggen nötig.</p>
       <h3>Mengen (cbm)</h3>
@@ -467,7 +482,7 @@
       <h3>Bearbeiten-Modus</h3>
       <p>Im Rechnungsordner (status „Entwurf") → Bearbeiten: Felder anpassen und Rechnung neu erstellen. Über den Button „Rechnungsordner" springst du direkt zurück ohne zu speichern.</p>
       <button class="btn-logout" onclick="doLogout()">Abmelden</button>
-      <p style="text-align:center;font-size:.75rem;color:var(--text2);margin-top:16px">Version 1.5 · 2026-10-04 · a sEpp-App</p>
+      <p style="text-align:center;font-size:.75rem;color:var(--text2);margin-top:16px">Version 1.6 · 2026-10-04 · a sEpp-App</p>
     </div>
   </div>
 </div>
@@ -723,6 +738,7 @@
     ALL_SCREENS.forEach(n =>
       document.getElementById(`s-${n}`).classList.toggle('hidden', n !== name)
     );
+    if (name === 'main') checkSelftest();
     // Pinch-Zoom auf PDF-Screen freigeben, sonst sperren
     document.querySelector('meta[name="viewport"]').content = name === 'pdf'
       ? 'width=device-width, initial-scale=1.0, viewport-fit=cover'
@@ -738,6 +754,27 @@
     const hasFace = isLocked && !!credId;
     document.getElementById('face-id-btn').style.display = hasFace ? 'block' : 'none';
     document.getElementById('login-or').style.display    = hasFace ? 'block' : 'none';
+  }
+
+  // ── ZUGFeRD-Selbsttest-Hinweis ──
+  // Wegklicken gilt nur für diesen Testlauf (Schlüssel = Startzeit); nach dem nächsten
+  // fehlgeschlagenen Start erscheint der Hinweis wieder.
+  let selftestZeit = null;
+  async function checkSelftest() {
+    if (!token) return;
+    try {
+      const r = await fetch(`${API}/kargl/api/selftest`, {headers: {'Authorization': `Bearer ${token}`}});
+      if (!r.ok) return;
+      const st = await r.json();
+      selftestZeit = st.zeit || null;
+      let weg = null;
+      try { weg = localStorage.getItem('kargl_selftest_weg'); } catch {}
+      document.getElementById('selftest-box').classList.toggle('hidden', st.ok !== false || weg === selftestZeit);
+    } catch {}
+  }
+  function dismissSelftest() {
+    try { if (selftestZeit) localStorage.setItem('kargl_selftest_weg', selftestZeit); } catch {}
+    document.getElementById('selftest-box').classList.add('hidden');
   }
 
   // ── Auth ──

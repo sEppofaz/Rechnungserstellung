@@ -1547,6 +1547,15 @@ def _list_folder_names(dbx: dropbox.Dropbox, path: str) -> set[str]:
     return names
 
 
+@app.route("/kargl/api/selftest", methods=["GET"])
+@require_token
+def kargl_selftest_status():
+    try:
+        return json.loads(_SELFTEST_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {"ok": None}  # noch kein Ergebnis – App zeigt nichts an
+
+
 @app.route("/kargl/api/rechnungen", methods=["GET"])
 @require_token
 def kargl_rechnungen_list():
@@ -1886,7 +1895,11 @@ def kargl_leistung_update(nr):
 # Läuft nach jedem Neustart, also nach jedem Deploy und jedem pip-Update (beide starten den
 # Service neu) – genau dann, wenn sich Code oder das in factur-x mitgelieferte XSD ändern kann.
 # Nötig, weil _create_zugferd_pdf Fehler still schluckt (→ Rechnung ohne e-Rechnung).
-# Nur Fake-Daten, kein Dropbox-/API-Zugriff. Alarm per Telegram-Hauptbot (TOKEN/CHAT_ID).
+# Nur Fake-Daten, kein Dropbox-/API-Zugriff. Ergebnis landet in _SELFTEST_FILE: die App zeigt bei
+# Fehler einen wegklickbaren Hinweis (/kargl/api/selftest), der Cron-Wächter (Vereinskalender,
+# ADR-015, Registry-Abschnitt „dienste") meldet per Telegram. Kein eigener Telegram-Versand.
+
+_SELFTEST_FILE = Path("/opt/kargl-invoice/zugferd_selftest.json")
 
 _SELFTEST_CASES = {
     "Positionen": ({"name": "Selbsttest GmbH & Co", "strasse_nr": "Teststr. 1", "plz": "84092", "ort": "Bayerbach",
@@ -1928,27 +1941,20 @@ def _zugferd_selftest() -> list[str]:
     return errors
 
 
-def _telegram_alert(text: str) -> None:
-    token, chat_id = os.environ.get("TOKEN", ""), os.environ.get("CHAT_ID", "")
-    if not token or not chat_id:
-        log("⚠️  Telegram-Alarm nicht möglich: TOKEN/CHAT_ID fehlen")
-        return
-    try:
-        body = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:4000]}).encode()
-        urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=body, timeout=15)
-    except Exception as e:
-        log(f"⚠️  Telegram-Alarm fehlgeschlagen: {type(e).__name__}")
-
-
 def _run_zugferd_selftest() -> None:
     errors = _zugferd_selftest()
-    if not errors:
+    status = {"name": "ZUGFeRD-Selbsttest", "zeit": datetime.now().astimezone().isoformat(timespec="seconds"),
+              "ok": not errors, "fehler": errors}
+    try:
+        tmp = _SELFTEST_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(_SELFTEST_FILE)
+    except Exception as e:
+        log(f"⚠️  Selbsttest-Status nicht schreibbar: {e}")
+    if errors:
+        log("❌  ZUGFeRD-Selbsttest FEHLGESCHLAGEN: " + " | ".join(errors))
+    else:
         log("✅  ZUGFeRD-Selbsttest OK (XSD EN 16931, Positionen + Pauschal)")
-        return
-    log("❌  ZUGFeRD-Selbsttest FEHLGESCHLAGEN: " + " | ".join(errors))
-    _telegram_alert("❌ Kargl: ZUGFeRD-Selbsttest beim Start fehlgeschlagen – "
-                    "e-Rechnungen sind betroffen (Rechnungen selbst laufen weiter).\n\n"
-                    + "\n".join(errors) + "\n\nLog: journalctl -u kargl-invoice")
 
 
 threading.Thread(target=_run_zugferd_selftest, daemon=True).start()
